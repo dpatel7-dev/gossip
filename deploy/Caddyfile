@@ -1,0 +1,16 @@
+# Optional: put the relay behind Caddy to get a real wss:// (TLS) address.
+#
+# You need a domain name pointing at this machine (an A record), and ports 80
+# and 443 open. Caddy then fetches and renews the certificate by itself.
+#
+#   1. sudo apt install caddy
+#   2. Replace chat.example.com below with your domain, and copy this file to
+#      /etc/caddy/Caddyfile
+#   3. sudo systemctl reload caddy
+#   4. Run the relay in proxy mode:  sh ~/.gossip/app/deploy/setup-relay.sh 8787 proxy
+#
+# People then connect with:  gossip --relay chat.example.com
+
+chat.example.com {
+	reverse_proxy 127.0.0.1:8787
+}
