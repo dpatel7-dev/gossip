@@ -66,7 +66,8 @@ const notes = (app) => app.shown.filter((i) => i.t === 'note').map((i) => i.text
 
 test('server addresses are normalised', () => {
   assert.equal(normalizeServer('chat.example.com'), 'wss://chat.example.com');
-  assert.equal(normalizeServer('https://chat.example.com/'), 'wss://chat.example.com');
+  assert.equal(normalizeServer('https://chat.example.com/'), 'https://chat.example.com', 'a website stays a website');
+  assert.equal(normalizeServer('wss://chat.example.com/'), 'wss://chat.example.com');
   assert.equal(normalizeServer('localhost:8787'), 'ws://localhost:8787');
   assert.equal(normalizeServer('34.1.2.3:8787'), 'ws://34.1.2.3:8787');
   assert.throws(() => normalizeServer(''));

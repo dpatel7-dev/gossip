@@ -141,6 +141,11 @@ main() {
   mv "$TMP/app" "$ROOT/app"
   rm -rf "$ROOT/app.old"
 
+  # Installed from a gossip website? Remember it, so nobody has to type an address.
+  case "${GOSSIP_HUB:-}" in
+    http://* | https://* | ws://* | wss://*) printf '%s\n' "$GOSSIP_HUB" >"$ROOT/hub" ;;
+  esac
+
   mkdir -p "$BIN_DIR"
   cat >"$BIN_DIR/gossip" <<EOF
 #!/bin/sh

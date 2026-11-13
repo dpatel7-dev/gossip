@@ -99,6 +99,11 @@
     if (Test-Path $appDir) { Remove-Item -Recurse -Force $appDir }
     Move-Item -Path $src.FullName -Destination $appDir
 
+    # Installed from a gossip website? Remember it, so nobody has to type an address.
+    if ($env:GOSSIP_HUB -match '^(https?|wss?)://\S+$') {
+      Set-Content -Path (Join-Path $root 'hub') -Value $env:GOSSIP_HUB -Encoding ASCII
+    }
+
     $launcher = @'
 @echo off
 rem gossip launcher - written by install.ps1. Re-run the installer to recreate it.

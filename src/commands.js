@@ -296,7 +296,7 @@ const COMMANDS = [
       try {
         res = await app.link.request('join', { room });
       } catch (e) {
-        throw e.code === 'no_such_room' ? new Error(`There's no server called #${room}. Start it with ${app.hint(`create ${room}`)}`) : e;
+        throw e.code === 'no_such_room' ? Object.assign(new Error(`There's no server called #${room}. Start it with ${app.hint(`create ${room}`)}`), { code: e.code }) : e;
       }
       app.invites.delete(room);
       const chat = adoptRoom(app, room, res);
@@ -553,22 +553,22 @@ const COMMANDS = [
   },
   {
     name: 'relay', aliases: ['server'], args: '[address]', group: 'Setup',
-    desc: 'Show or change the relay you connect through',
+    desc: 'Show or change the relay or website your messages go through',
     async run(ctx, args) {
       const { app } = ctx;
-      const { normalizeServer } = require('./app');
+      const { resolveServer } = require('./app');
       if (!args[0]) {
         const rows = [[['relay   ', 'dim'], [app.serverUrl || '(not set)', null]]];
         if (ctx.shell) {
           const d = app.conn.detail || {};
           rows.push([['status  ', 'dim'], [app.conn.state === 'online' ? 'connected' : app.conn.state + (d.message ? ` - ${d.message}` : ''), app.conn.state === 'online' ? 'ok' : 'warn']]);
         }
-        if (/^ws:\/\/(?!localhost|127\.|\[::1\])/.test(app.serverUrl)) {
+        if (/^(ws|http):\/\/(?!localhost|127\.|\[::1\])/.test(app.serverUrl)) {
           rows.push([['No TLS on this address: message text is still end-to-end encrypted, but who you talk to is visible on the network.', 'warn']]);
         }
         return app.rows(rows);
       }
-      const url = normalizeServer(args[0]);
+      const url = await resolveServer(args[0]);
       if (ctx.shell) {
         app.say(`Switching to ${url}…`, 'sys');
         app.switchServer(url);
@@ -592,7 +592,7 @@ const COMMANDS = [
     name: 'help', aliases: ['h', 'commands'], group: 'Setup',
     desc: 'Show all commands',
     async run(ctx) {
-      ctx.app.rows(helpRows(ctx.shell));
+      ctx.app.rows(helpRows(ctx.shell, ctx.view));
     },
   },
   {
@@ -628,7 +628,7 @@ function didYouMean(word, extra = []) {
   return names.filter((n) => distance(n, word.toLowerCase()) <= 2)[0] || null;
 }
 
-function helpRows(shell) {
+function helpRows(shell, view) {
   const rows = [];
   const p = shell ? '/' : 'gossip ';
   const w = shell ? 30 : 36;
@@ -651,13 +651,21 @@ function helpRows(shell) {
   }
   if (shell) {
     rows.push([['Keys', 'head']]);
-    for (const [k, d] of [
-      ['Enter', 'Send'], ['Alt+Enter', 'New line'], ['Tab', 'Complete a name or command; on an empty line, switch who you talk to'],
+    const keys = view === 'full' ? [
+      ['Tab', 'Open the menu - everything is in there'], ['Up / Down', 'Move between your chats'], ['Enter', 'Send'],
+      ['Alt+Enter', 'New line'], ['PgUp / PgDn', 'Scroll older and newer messages'], ['Esc', 'Clear the line, or jump to the newest message'],
+      ['Mouse', 'Click a chat, scroll with the wheel (hold Shift to select text)'], ['Ctrl+D', 'Leave'],
+    ] : [
+      ['Tab', 'Open the menu (or finish a name or command you started typing)'], ['Shift+Tab', 'Hop to the next chat'],
+      ['Enter', 'Send'], ['Alt+Enter', 'New line'],
       ['Up / Down', 'Things you typed before'], ['Esc', 'Clear the line'], ['Ctrl+L', 'Clear the screen'], ['Ctrl+D', 'Leave'],
-    ]) rows.push([['  ' + k.padEnd(w), null], [d, 'dim']]);
+    ];
+    for (const [k, d] of keys) rows.push([['  ' + k.padEnd(w), null], [d, 'dim']]);
     rows.push([['A line that starts with a space is always sent as plain text.', 'dim']]);
   } else {
-    rows.push([['Hosting', 'head']]);
+    rows.push([['More', 'head']]);
+    rows.push([['  ' + 'gossip --classic'.padEnd(w), null], ['Open the chat in the classic scrolling look (or: --full)', 'dim']]);
+    rows.push([['  ' + 'gossip nearby'.padEnd(w), null], ['Chat with people on the same Wi-Fi or cable - no internet needed', 'dim']]);
     rows.push([['  ' + 'gossip serve'.padEnd(w), null], ['Run your own relay (gossip serve --help)', 'dim']]);
     rows.push([['  ' + 'gossip update'.padEnd(w), null], ['Get the latest version', 'dim']]);
     rows.push([['Names work bare: "gossip squawk maya hi", "gossip squawk gamedev hi".', 'dim']]);
@@ -685,6 +693,32 @@ async function runCommand(ctx, line) {
   }
   const args = rest.trim() ? rest.trim().split(/\s+/) : [];
   await cmd.run(ctx, args, rest);
+}
+
+/**
+ * A line typed into the chat: a /command, "@maya hi", "#server hi", or just a
+ * message for whoever you're talking to.
+ */
+async function handleInput(ctx, raw) {
+  const { app } = ctx;
+  const literal = raw[0] === ' '; // a leading space means "send this exactly as typed"
+  const text = raw.trim();
+  if (!literal && text[0] === '/' && text[1] !== '/') return runCommand(ctx, text.slice(1));
+  if (!literal) {
+    const m = /^([@#][A-Za-z0-9_-]+)(?:\s+([\s\S]+))?$/.exec(text);
+    if (m) {
+      const key = await resolveTarget(app, m[1]);
+      app.setTarget(key);
+      if (m[2] && m[2].trim()) sendFromShell(app, key, m[2]);
+      return undefined;
+    }
+  }
+  if (!app.target) {
+    app.say(ctx.noTarget || 'Who to? Start with @username or #server - for example: @maya hey', 'warn');
+    return undefined;
+  }
+  sendFromShell(app, app.target, !literal && text.startsWith('//') ? text.slice(1) : text);
+  return undefined;
 }
 
 // ── suggestions for the live prompt ─────────────────────────────────────────
@@ -779,4 +813,4 @@ function suggest(app, text) {
   return { stage: 'arg', items };
 }
 
-module.exports = { COMMANDS, GROUPS, runCommand, suggest, find, didYouMean, helpRows, resolveTarget, resolveLocal, sendFromShell, replay, pretty };
+module.exports = { COMMANDS, GROUPS, runCommand, handleInput, people, suggest, find, didYouMean, helpRows, resolveTarget, resolveLocal, sendFromShell, replay, pretty };

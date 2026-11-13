@@ -3,13 +3,14 @@
 End-to-end encrypted chat that lives inside your terminal. Direct messages,
 group servers, contacts — and Pebble, a penguin who dances while you connect.
 
-![gossip running in a terminal](docs/screenshot.png)
+![The gossip chat screen](docs/chat.png)
 
-- **Runs in your normal terminal.** No full-screen takeover: messages are ordinary lines you can scroll, select and copy.
-- **Private by design.** Messages are encrypted on your computer; the relay that passes them along can't read them.
-- **Two ways to use it.** Quick shell commands (`gossip check`, `gossip squawk maya hi`) or a live chat prompt (`gossip`).
-- **Yours to shape.** Six themes, your own colours, layouts, shortcuts — `gossip config` shows every knob.
-- **Nothing to install but gossip.** No accounts, emails or passwords. Zero dependencies.
+- **A real chat screen, no commands needed.** Your chats on the left, the conversation on the right. Arrow keys, a menu (Tab) and the mouse do everything.
+- **Private by design.** Messages are encrypted on your computer; whatever passes them along can't read them.
+- **Works without internet too.** `gossip nearby` finds people on the same Wi-Fi or cable.
+- **Commands if you like them.** `gossip check`, `gossip squawk maya hi`, `gossip listen` work from any terminal.
+- **Yours to shape.** Six themes, your own colours, two looks, shortcuts — it's all in the menu.
+- **Looks after itself.** It updates on its own. No accounts, emails or passwords. Zero dependencies.
 
 ## Install
 
@@ -27,21 +28,58 @@ irm https://raw.githubusercontent.com/dpatel7-dev/gossip/main/install.ps1 | iex
 
 Then open a new terminal window and type `gossip`.
 
+If a friend gave you a link to their gossip website, use the install line shown
+there instead: it's the same installer, and it already knows where to connect.
+
 The installer needs no admin rights and keeps everything inside your home
 folder. If you don't have Node.js 18+, it downloads a private copy just for
 gossip.
 
 ## First run
 
-`gossip` asks two things the first time:
+`gossip` asks one thing the first time: **pick a username.** That's how people find you.
 
-1. **Which relay?** The address of the gossip relay you and your friends use (see [Run your own relay](#run-your-own-relay)).
-2. **Pick a username.** That's how people find you.
+If you didn't install from a gossip website, it first asks **where your friends
+chat**: the address of a gossip website or relay someone gave you (see
+[Where messages go](#where-messages-go)). No internet at all? Skip that and run
+`gossip nearby`.
 
 Your encryption keys are created on your computer at that moment. There is no
 password: the file `~/.gossip/identity.json` *is* your account, so back it up.
 
-## Two ways to chat
+## The chat screen
+
+Type `gossip`.
+
+```
+╭─ gossip ───────────────┬─ maya ● online ─────────────────────────────╮
+│ PEOPLE                 │                                             │
+│› ● maya                │  2:23 PM  maya: are you coming?             │
+│  ○ sam              2  │  2:24 PM  you: yes, 10 min                  │
+│  + Add a person        │  2:24 PM  maya: ok!                         │
+│                        │                                             │
+│ SERVERS                │                                             │
+│  # gamedev             ├─────────────────────────────────────────────┤
+│  + Join or create      │ › Message maya                              │
+╰────────────────────────┴─────────────────────────────────────────────╯
+ ↑↓ chats · tab menu · enter send                    ● dhruv · online
+```
+
+| Key | What it does |
+| --- | --- |
+| `↑` `↓` | Move between your chats |
+| `Tab` | Open the menu: add people, join or create servers, invite, remove, block, colours, every setting |
+| `Enter` | Send |
+| `PgUp` `PgDn` | Scroll back through the conversation |
+| Mouse | Click a chat; scroll with the wheel (hold Shift to select text) |
+| `Ctrl+D` | Leave |
+
+Prefer messages as ordinary scrolling lines you can select and copy? That's the
+**classic look**: choose *Make it yours → Switch to the classic look* in the
+menu, or run `gossip --classic`. It has the same menu on `Tab`. Your choice is
+remembered (`gossip config view full` / `classic`).
+
+## Commands, if you like them
 
 ### 1. From your shell
 
@@ -58,7 +96,7 @@ echo "build passed" | gossip squawk gamedev    # pipe anything in
 You can keep `gossip listen` running in one tab and use the other commands in
 another — one account works in as many terminals as you like.
 
-### 2. The live prompt
+### 2. Inside the chat
 
 Type `gossip` on its own:
 
@@ -145,6 +183,38 @@ Colour parts: `accent` `accent2` `border` `dim` `ok` `warn` `err` `server`
 
 Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop`.
 
+## No internet? `gossip nearby`
+
+```sh
+gossip nearby
+```
+
+It looks for other people running `gossip nearby` on the same local network —
+the same Wi-Fi router (it doesn't have to be online), a hotspot, or a network
+cable between two computers. The first person in quietly hosts; everyone else
+finds them, and you all land in a server called `#nearby`. If the host leaves,
+someone else takes over.
+
+- Messages are end-to-end encrypted exactly as they are over the internet.
+- If your computer asks whether to let Node.js use the network, say yes.
+- If it can't find the others (some school and café networks block this), the host's screen shows a line like `gossip nearby 192.168.1.5` for them to type.
+- Computers with no connection between them at all can't chat. There has to be *some* link.
+
+## Updates
+
+gossip checks for a new version in the background every few hours, downloads
+it, checks that it starts, and switches over the next time you run `gossip`. It
+never changes anything underneath a running chat.
+
+```sh
+gossip update                  # check and fetch right now
+gossip config update notify    # just tell me, don't download
+gossip config update off       # never check
+```
+
+(For whoever maintains the project: a "new version" is a higher `version` in
+`package.json` on GitHub.)
+
 ## How private is it?
 
 gossip uses standard, published cryptography that ships inside Node.js:
@@ -171,9 +241,29 @@ Be clear-eyed about the limits:
 It has not had a professional security audit. Treat it as a private chat for
 friends, not as a tool for life-or-death secrets.
 
+## Where messages go
+
+Two computers at home can't reach each other directly, so something on the
+internet has to pass the (sealed) messages along. There are two choices, and
+both work with the same app:
+
+**A gossip website — the easy one.** The install page can do it. Put it on
+PythonAnywhere's free plan once (five minutes, no server to look after) and
+everyone who installs from it is connected automatically:
+[step-by-step guide](docs/HOSTING.md).
+
+**A relay — if you have a machine that's always on.** Faster (messages are
+instant instead of arriving within a second or two) and entirely yours.
+
+```sh
+gossip relay https://yourname.pythonanywhere.com   # use a website
+gossip relay wss://chat.example.com                # use a relay
+gossip relay                                       # show what you're using
+```
+
 ## Run your own relay
 
-Someone has to run the relay everyone connects to. It's one command:
+It's one command:
 
 ```sh
 gossip serve
@@ -212,7 +302,7 @@ domain name, [`deploy/Caddyfile`](deploy/Caddyfile) puts the relay behind
 [Caddy](https://caddyserver.com), which fetches a certificate for you. People
 then connect with just `gossip --relay chat.example.com`.
 
-### Make your relay the default
+### Make your relay (or website) the default
 
 Edit `gossip.config.json` in this repo and push:
 
@@ -220,17 +310,17 @@ Edit `gossip.config.json` in this repo and push:
 {
   "repo": "dpatel7-dev/gossip",
   "branch": "main",
-  "defaultServer": "wss://chat.example.com"
+  "hub": "wss://chat.example.com"
 }
 ```
 
-Anyone who installs after that skips the "Which relay?" question.
+Anyone who installs after that skips the "where do your friends chat?" question.
 
 ## Good to know
 
 | | |
 | --- | --- |
-| Update | `gossip update` |
+| Update | Automatic. `gossip update` does it now; `gossip config update off` stops it |
 | Your account | `~/.gossip/identity.json` (back it up; copy it to move to another computer) |
 | Settings, contacts, history | `~/.gossip/` |
 | Relay data | `~/.gossip-server/` on the machine running `gossip serve` |
@@ -241,23 +331,31 @@ Anyone who installs after that skips the "Which relay?" question.
 
 ```sh
 git clone https://github.com/dpatel7-dev/gossip && cd gossip
-npm test                     # 39 tests: crypto, relay, client, real CLI runs
+npm test                     # crypto, relay, website, client, nearby, updater, real CLI runs
 node bin/gossip.js serve     # a local relay
 GOSSIP_HOME=/tmp/alice node bin/gossip.js --relay localhost:8787
 GOSSIP_HOME=/tmp/bob   node bin/gossip.js --relay localhost:8787
+python3 hub/gossip_hub.py --port 8080    # the website + hub, locally
+node tools/build-site.js     # rebuild site/index.html after editing index.src.html
 ```
 
 ```
 bin/gossip.js      entry point
 src/cli.js         shell commands, first-run setup
-src/shitty.js      the live prompt
-src/commands.js    every command (shared by shell and prompt)
+src/screen.js      the full chat screen
+src/shitty.js      the classic look
+src/menu.js        the menu both looks share
+src/commands.js    every command (shared by the shell, the chat and the menu)
 src/app.js         client core: keys, sending, receiving
 src/e2e.js         the encryption
 src/render.js      how things look        src/theme.js   colour schemes
 src/mascot.js      Pebble's pixel art     src/prefs.js   settings
-src/net.js, ws.js  connection to the relay (a small built-in WebSocket)
+src/net.js, ws.js  connection to a relay (a small built-in WebSocket) or a website
+src/nearby.js      finding people on the local network
+src/update.js      self-updating
 server/relay.js    the relay
+hub/gossip_hub.py  the website: install page + message passing (plain Python)
+site/              the install page          docs/HOSTING.md   putting it online
 ```
 
 No dependencies: everything is Node.js built-ins.

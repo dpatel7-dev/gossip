@@ -9,4 +9,10 @@ if (major < 18) {
   process.exit(1);
 }
 
+// A newer gossip may have been downloaded in the background last time: switch to it
+// now, before anything else is loaded. (Never fatal - worst case we run the old one.)
+try {
+  require('../src/update').applyStaged();
+} catch (e) { /* carry on with what's here */ }
+
 require('../src/cli').start(process.argv.slice(2));

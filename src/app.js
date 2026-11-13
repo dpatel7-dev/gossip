@@ -7,7 +7,8 @@ const { EventEmitter } = require('events');
 const e2e = require('./e2e');
 const P = require('./proto');
 const ws = require('./ws');
-const { Link, friendlyNetError } = require('./net');
+const fs = require('fs');
+const { makeLink, probeHttp, friendlyNetError } = require('./net');
 const { cleanText } = require('./text');
 const prefs = require('./prefs');
 
@@ -15,13 +16,16 @@ function fail(code, message) {
   return Object.assign(new Error(message), { code });
 }
 
-/** Turn what a person typed into a ws:// or wss:// address. */
+/**
+ * Turn what a person typed into an address gossip can connect to:
+ *   ws:// or wss://      a relay (gossip serve)
+ *   http:// or https://  a gossip website
+ * A bare name is assumed to be a relay; resolveServer() tries both.
+ */
 function normalizeServer(input) {
   let s = String(input || '').trim();
-  if (!s) throw new Error('Type the address of a gossip relay');
-  if (/^https:\/\//i.test(s)) s = 'wss://' + s.slice(8);
-  else if (/^http:\/\//i.test(s)) s = 'ws://' + s.slice(7);
-  else if (!/^wss?:\/\//i.test(s)) {
+  if (!s) throw new Error('Type the address of a gossip relay or website');
+  if (!/^(wss?|https?):\/\//i.test(s)) {
     const plain = /^(localhost|\[::1\]|\d{1,3}(\.\d{1,3}){3})(:\d+)?(\/|$)/i.test(s);
     s = (plain ? 'ws://' : 'wss://') + s;
   }
@@ -41,6 +45,25 @@ function mentions(text, name) {
 
 const TRANSIENT = ['offline', 'disconnected', 'timeout'];
 
+/** For a bare name like "dhruv.pythonanywhere.com": is it a website or a relay? Ask it. */
+async function resolveServer(input) {
+  const typed = String(input || '').trim();
+  if (/^(wss?|https?):\/\//i.test(typed)) return normalizeServer(typed);
+  const relay = normalizeServer(typed);
+  const site = relay.replace(/^ws/i, 'http');
+  const order = /\.(pythonanywhere\.com|netlify\.app)$/i.test(new URL(site).hostname) ? [site, relay] : [relay, site];
+  let first = null;
+  for (const url of order) {
+    try {
+      await probeServer(url);
+      return url;
+    } catch (e) {
+      first = first || e;
+    }
+  }
+  throw first;
+}
+
 class App extends EventEmitter {
   /**
    * mode:  'live' - the chat prompt and `gossip listen` (receive everything, show as online)
@@ -48,12 +71,13 @@ class App extends EventEmitter {
    *        'post' - `gossip squawk` and other one-off commands (send only)
    * shell: true inside the live prompt, so hints say "/join x" instead of "gossip join x"
    */
-  constructor({ vault, config = {}, server = '', mode = 'live', shell = false }) {
+  constructor({ vault, config = {}, server = '', mode = 'live', shell = false, via = '' }) {
     super();
     this.vault = vault;
     this.config = config;
     this.mode = mode;
     this.shell = shell;
+    this.via = via; // an address to use for this run only (nearby mode), never saved
     this._settings = null;
     this.settings = vault.loadSettings();
     if (server) {
@@ -96,8 +120,24 @@ class App extends EventEmitter {
     prefs.use(value);
   }
 
+  /**
+   * Where messages go through. In order: this run only (nearby mode), what you
+   * chose with `gossip relay`, the website gossip was installed from, the
+   * project's default.
+   */
   get serverUrl() {
-    return this.settings.server || this.config.defaultServer || '';
+    return this.via || this.settings.server || this._installedFrom() || this.config.hub || this.config.defaultServer || '';
+  }
+
+  _installedFrom() {
+    if (this._hubFile === undefined) {
+      this._hubFile = '';
+      try {
+        const text = fs.readFileSync(this.vault.file('hub'), 'utf8').trim();
+        if (/^(https?|wss?):\/\/[^\s]+$/i.test(text)) this._hubFile = text.replace(/\/+$/, '');
+      } catch { /* installed some other way */ }
+    }
+    return this._hubFile;
   }
 
   /** How to write a command where the person is: "/join x" in the prompt, "gossip join x" in a shell. */
@@ -121,12 +161,20 @@ class App extends EventEmitter {
 
   // ── account & connection ──────────────────────────────────────────────────
 
+  /** Create keys on this computer without telling anyone yet (nearby mode signs up wherever it lands). */
+  createLocalIdentity(name) {
+    const identity = e2e.createIdentity();
+    this.identity = { name, server: '', created: Date.now(), ...identity };
+    this.vault.saveIdentity(this.identity);
+    this.me = name;
+  }
+
   /** Create keys on this computer and claim `name` on the server. */
   register(name) {
     return new Promise((resolve, reject) => {
       if (!this._newIdentity) this._newIdentity = e2e.createIdentity();
       const identity = this._newIdentity;
-      const link = new Link({ url: this.serverUrl, identity, name, mode: 'post', retry: false });
+      const link = makeLink({ url: this.serverUrl, identity, name, mode: 'post', retry: false });
       const done = (err) => {
         link.removeAllListeners();
         link.stop();
@@ -152,7 +200,7 @@ class App extends EventEmitter {
   connect({ retry = true, timeout = 15000 } = {}) {
     if (!this.identity) return Promise.reject(fail('no_account', 'No account on this computer yet - run `gossip` to make one'));
     if (!this.serverUrl) return Promise.reject(fail('no_server', 'No relay is set - run: gossip relay <address>'));
-    const link = new Link({ url: this.serverUrl, identity: this.identity, name: this.me, mode: this.mode, retry });
+    const link = makeLink({ url: this.serverUrl, identity: this.identity, name: this.me, mode: this.mode, retry });
     this._wire(link);
     return new Promise((resolve, reject) => {
       let timer = null;
@@ -182,18 +230,13 @@ class App extends EventEmitter {
   /** Close, but give the last few bytes (like "got it" receipts) time to leave. */
   async closeGracefully() {
     this.flushAcks();
-    const conn = this.link && this.link.conn;
-    if (this.link) this.link.stop();
-    if (conn && !conn.closed) {
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 700);
-        conn.once('close', () => { clearTimeout(timer); resolve(); });
-      });
-    }
+    if (this.link) await this.link.shutdown();
   }
 
-  switchServer(url) {
-    this.settings = this.vault.updateSettings((s) => { s.server = url; });
+  /** remember=false: just for this run (nearby mode hopping to a new host). */
+  switchServer(url, { remember = true } = {}) {
+    if (remember) this.settings = this.vault.updateSettings((s) => { s.server = url; });
+    else this.via = url;
     if (this.link) {
       this.link.removeAllListeners();
       this.link.stop();
@@ -740,8 +783,9 @@ class App extends EventEmitter {
   }
 }
 
-/** Connect just long enough to see that a gossip relay answers. */
+/** Connect just long enough to see that a gossip relay (or website) answers. */
 async function probeServer(url) {
+  if (/^https?:\/\//i.test(url)) return probeHttp(url);
   let conn;
   try {
     conn = await ws.connect(url, { timeout: 8000 });
@@ -769,4 +813,4 @@ async function probeServer(url) {
   });
 }
 
-module.exports = { App, normalizeServer, probeServer, fail };
+module.exports = { App, normalizeServer, resolveServer, probeServer, fail };

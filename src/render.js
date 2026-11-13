@@ -126,9 +126,10 @@ function decorate(me, line) {
   return out + line.slice(last);
 }
 
-function who(me, key, msg) {
+function who(me, key, msg, bare) {
   const mine = msg.from === me;
   const from = mine ? A.paint(prefs.val('you'), { bold: true }) : user(msg.from);
+  if (bare) return from; // inside one chat's own pane there's no need to say where it went
   if (key[0] === '@') return mine ? from + Th.dim(' → ') + user(key.slice(1)) : from;
   return from + Th.dim(' in ') + server(key.slice(1));
 }
@@ -144,11 +145,11 @@ function clockText(ts) {
  *    2:23 PM  you → maya: nice
  *    2:26 PM  sam in #gamedev: anyone around?
  */
-function messageLines(me, key, msg, cols) {
+function messageLines(me, key, msg, cols, bare = false) {
   const clock = clockText(msg.ts);
   const timeW = clock ? (prefs.val('time') === '24h' ? 5 : 8) + 2 : 1;
   const time = clock ? Th.dim(clock.padStart(timeW - 2)) + '  ' : ' ';
-  const head = who(me, key, msg) + Th.dim(':');
+  const head = who(me, key, msg, bare) + Th.dim(':');
 
   const max = Math.max(24, cols - 1);
   const indent = max >= 50 ? timeW : 2;
@@ -168,12 +169,12 @@ function messageLines(me, key, msg, cols) {
 }
 
 /** The "cozy" layout: who and when on one line, the text underneath. */
-function cozyLines(me, key, msg, cols, withHeader) {
+function cozyLines(me, key, msg, cols, withHeader, bare = false) {
   const max = Math.max(24, cols - 1);
   const out = [];
   if (withHeader) {
     const clock = clockText(msg.ts);
-    out.push('', ' ' + who(me, key, msg) + (clock ? Th.dim('  ·  ' + clock) : ''));
+    out.push('', ' ' + who(me, key, msg, bare) + (clock ? Th.dim('  ·  ' + clock) : ''));
   }
   for (const l of A.wrap(msg.text, max - 3)) out.push('   ' + decorate(me, l));
   if (msg.from === me && msg.status === 'failed') out[out.length - 1] += '  ' + Th.err('✗ not sent');
@@ -222,8 +223,9 @@ function dayLine(ts) {
  * (the last day, the last speaker) to add date lines and group messages.
  */
 class Printer {
-  constructor(me) {
+  constructor(me, { bare = false } = {}) {
     this.me = me;
+    this.bare = bare;
     this.lastDay = null;
     this.last = null; // { key, from, ts } of the message printed last
   }
@@ -254,9 +256,9 @@ class Printer {
     if (prefs.val('layout') === 'cozy') {
       const l = this.last;
       const grouped = l && l.key === key && l.from === msg.from && Math.abs(msg.ts - l.ts) < 5 * 60 * 1000;
-      for (const line of cozyLines(this.me, key, msg, cols, !grouped)) out.push(line);
+      for (const line of cozyLines(this.me, key, msg, cols, !grouped, this.bare)) out.push(line);
     } else {
-      for (const line of messageLines(this.me, key, msg, cols)) out.push(line);
+      for (const line of messageLines(this.me, key, msg, cols, this.bare)) out.push(line);
     }
     this.last = { key, from: msg.from, ts: msg.ts };
     return out;

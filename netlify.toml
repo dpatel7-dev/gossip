@@ -1,0 +1,11 @@
+# Netlify settings for the gossip install page.
+# The page is plain files in site/ - there is nothing to build.
+[build]
+  publish = "site"
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"

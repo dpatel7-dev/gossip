@@ -84,7 +84,7 @@ async function playInline(scene) {
 // ── first run ───────────────────────────────────────────────────────────────
 
 async function setup(app) {
-  const { normalizeServer, probeServer } = require('./app');
+  const { resolveServer } = require('./app');
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     die('No gossip account on this computer yet. Run `gossip` in a terminal once to set it up.');
   }
@@ -116,13 +116,13 @@ async function setup(app) {
 
   try {
     while (!app.serverUrl) {
-      console.log('  ' + A.bold('Which relay?') + Th.dim('  The address a friend gave you, or your own (gossip serve).'));
+      console.log('  ' + A.bold('Where do your friends chat?') + Th.dim('  The address someone gave you: a gossip website or a relay.'));
+      console.log('  ' + Th.dim('(No internet? Leave this and run: gossip nearby)'));
       const answer = await ask(mark);
       try {
-        const url = normalizeServer(answer);
-        await probeServer(url);
+        const url = await resolveServer(answer);
         app.settings = app.vault.updateSettings((s) => { s.server = url; });
-        say('ok', `Found a gossip relay at ${url}`);
+        say('ok', `Found gossip at ${url}`);
         console.log('');
       } catch (e) {
         say('err', e.message.startsWith('Type') || e.message.startsWith('That') ? e.message : `Couldn't connect: ${e.message}`);
@@ -166,13 +166,29 @@ async function ensureAccount(app) {
 
 // ── commands that are their own thing ───────────────────────────────────────
 
-async function live() {
+/**
+ * Open the chat. There are two looks - the full chat screen and the classic
+ * scrolling prompt - and you can hop between them from the menu.
+ */
+async function live({ view = '', app = null, notice = null, firstRun = null } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    die('The chat prompt is interactive - run `gossip` directly in a terminal. For scripts, use `gossip check` or `gossip squawk`.');
+    die('The chat is interactive - run `gossip` directly in a terminal. For scripts, use `gossip check` or `gossip squawk`.');
   }
-  const app = makeApp('live', { shell: true });
-  const firstRun = await ensureAccount(app);
-  await require('./shitty').run(app, { firstRun });
+  app = app || makeApp('live', { shell: true });
+  if (firstRun === null) firstRun = await ensureAccount(app);
+  view = view || prefs.val('view');
+  checkForUpdates();
+  notice = notice || require('./update').news(prefs.val('update'));
+  for (;;) {
+    const screen = require('./screen');
+    const full = view === 'full' && screen.fits();
+    if (view === 'full' && !full) notice = notice || 'This window is too small for the full chat screen - here is the classic look instead.';
+    const result = await (full ? screen : require('./shitty')).run(app, { firstRun, notice });
+    if (!result || !result.switch) break;
+    view = result.switch;
+    firstRun = false;
+    notice = null;
+  }
   await app.closeGracefully();
 }
 
@@ -227,20 +243,142 @@ async function listen(args) {
   await new Promise(() => {}); // until Ctrl+C
 }
 
-function update() {
-  const { spawnSync } = require('child_process');
-  const cfg = loadConfig();
-  const repo = process.env.GOSSIP_REPO || cfg.repo || '';
-  const branch = process.env.GOSSIP_BRANCH || cfg.branch || 'main';
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !/^[\w./-]+$/.test(branch)) {
-    die('No valid GitHub repo is set in gossip.config.json, so there is nowhere to update from.');
+/** gossip update: check for a newer version and fetch it now. */
+async function update() {
+  const U = require('./update');
+  const say = (kind, text) => console.log(R.noteLines(kind, text, cols()).join('\n'));
+  const cfg = U.config();
+  if (!cfg) die('No valid GitHub repo is set in gossip.config.json, so there is nowhere to update from.');
+  const where = U.install();
+  const have = U.currentVersion();
+  console.log(Th.dim(`  Checking ${cfg.repo} ...`));
+  let version;
+  try {
+    version = await U.latest(cfg);
+  } catch (e) {
+    die(`Couldn't check for updates: ${e.message}`);
   }
-  const base = `https://raw.githubusercontent.com/${repo}/${branch}`;
-  console.log(`  Updating gossip from github.com/${repo} ...`);
-  const r = process.platform === 'win32'
-    ? spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `irm ${base}/install.ps1 | iex`], { stdio: 'inherit' })
-    : spawnSync('sh', ['-c', `curl -fsSL ${base}/install.sh | sh`], { stdio: 'inherit' });
-  process.exit(r.status === null ? 1 : r.status);
+  if (!U.newer(version, have)) return say('ok', `You have the newest gossip (v${have}).`);
+  if (!where.managed) {
+    return say('warn', `gossip v${version} is out (this is v${have}). This copy wasn't set up by the installer, so update it the way you got it - for a git clone: git pull`);
+  }
+  console.log(Th.dim(`  Getting v${version} ...`));
+  try {
+    await U.stage(version, cfg, where);
+  } catch (e) {
+    die(`Couldn't update: ${e.message}. Nothing was changed - you still have v${have}.`);
+  }
+  return say('ok', `gossip v${version} is downloaded and checked. It takes over the next time you start gossip.`);
+}
+
+/**
+ * gossip nearby [address]: chat with people on the same local network - no
+ * internet needed. The first person in hosts; everyone else finds them.
+ */
+async function nearby(args, view) {
+  const N = require('./nearby');
+  const { runCommand } = require('./commands');
+  const say = (kind, text) => console.log(R.noteLines(kind, text, cols()).join('\n'));
+  if (!process.stdin.isTTY || !process.stdout.isTTY) die('Nearby mode is interactive - run `gossip nearby` directly in a terminal.');
+  const app = makeApp('live', { shell: true });
+  const firstRun = !app.identity;
+
+  if (firstRun) { // never used gossip before: all nearby mode needs is a name
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    console.log('');
+    console.log('  ' + A.bold('Pick a username.') + Th.dim('  ' + P.NAME_HELP));
+    for (;;) {
+      const answer = await new Promise((resolve) => {
+        rl.once('close', () => resolve(null));
+        rl.question('  ' + Th.accent2(prefs.val('prompt.symbol')) + ' ', resolve);
+      });
+      if (answer === null) process.exit(130);
+      const name = P.cleanName(answer);
+      if (P.validName(name)) { app.createLocalIdentity(name); break; }
+      say('err', P.NAME_HELP);
+    }
+    rl.close();
+  }
+
+  let host = null;
+  let notice;
+  const becomeHost = async () => {
+    host = new N.Host({ dataDir: app.vault.file('nearby-host'), name: `${app.me}'s computer` });
+    await host.start();
+    return host.url;
+  };
+  if (args[0]) {
+    app.via = N.addressToUrl(args[0]);
+    notice = `Nearby mode: joining ${args[0]}.`;
+  } else {
+    console.log(Th.dim('  Looking for people nearby ...'));
+    const found = await N.find();
+    if (found.length) {
+      app.via = found[0].url;
+      notice = `Nearby mode: joined the chat ${found[0].name ? `on ${found[0].name}` : `at ${found[0].address}`}. No internet needed.`;
+    } else {
+      app.via = await becomeHost();
+      const addrs = N.localAddresses().map((i) => i.address);
+      notice = "Nearby mode: nobody else yet, so this computer is hosting. People on the same Wi-Fi or cable join with: gossip nearby"
+        + (addrs.length ? `  (if that can't find you: gossip nearby ${addrs[0]})` : '')
+        + '  If your computer asks to let Node.js use the network, allow it.';
+    }
+  }
+
+  // Everyone lands in one shared server, so you can see who is around.
+  const ctx = { app, shell: true, quit() {} };
+  const lobby = async () => {
+    for (const line of [`join ${N.LOBBY}`, `create ${N.LOBBY}`, `join ${N.LOBBY}`]) {
+      try {
+        if (!app.rooms().includes(N.LOBBY)) await runCommand(ctx, line);
+        if (!app.target) app.setTarget('#' + N.LOBBY);
+        if (notice) app.say(notice, 'sys');
+        notice = null;
+        return;
+      } catch (e) {
+        if (!['no_such_room', 'room_exists'].includes(e.code)) return;
+      }
+    }
+  };
+  app.on('synced', () => { lobby().catch(() => {}); });
+
+  // Keep the group together: if the host leaves, find the new one or take over;
+  // if two computers both ended up hosting, the newer one joins the older.
+  let offlineSince = 0;
+  let busy = false;
+  const keeper = setInterval(async () => {
+    if (busy || args[0]) return;
+    busy = true;
+    try {
+      if (host) {
+        const rival = await host.rival();
+        if (rival) {
+          app.say(`Joining the nearby chat on ${rival.name || rival.address}.`, 'sys');
+          app.switchServer(rival.url, { remember: false });
+          const old = host;
+          host = null;
+          await old.stop();
+        }
+      } else if (app.conn.state === 'offline') {
+        offlineSince = offlineSince || Date.now();
+        if (Date.now() - offlineSince > 4000 + Math.random() * 3000) {
+          const found = await N.find();
+          const url = found.length ? found[0].url : await becomeHost();
+          app.say(found.length ? 'The host left - joined the new one.' : 'The host left - this computer is hosting now.', 'sys');
+          app.switchServer(url, { remember: false });
+          offlineSince = 0;
+        }
+      } else offlineSince = 0;
+    } catch { /* try again on the next round */ }
+    busy = false;
+  }, 3000);
+
+  try {
+    await live({ view, app, firstRun });
+  } finally {
+    clearInterval(keeper);
+    if (host) await host.stop().catch(() => {});
+  }
 }
 
 function readStdin() {
@@ -256,8 +394,12 @@ function readStdin() {
 // commands that make sense before you have an account
 const NO_ACCOUNT = new Set(['help', 'config', 'theme', 'mascot', 'dance', 'relay', 'shitty']);
 
+/** Start the quiet background check for a new version (at most every few hours). */
+const checkForUpdates = () => require('./update').kick(prefs.val('update'));
+
 async function oneShot(cmd, args) {
   const app = makeApp('post');
+  checkForUpdates();
   if (!NO_ACCOUNT.has(cmd.name)) await ensureAccount(app);
   const print = printer(app);
   // (your own message isn't echoed back at you - "sent to maya" says it all)
@@ -294,23 +436,32 @@ async function main(argv) {
     if (!value) die('--relay needs an address, for example: gossip --relay chat.example.com', 2);
     args.splice(si, inline ? 1 : 2);
     const { Vault } = require('./vault');
-    const { normalizeServer } = require('./app');
+    const { resolveServer } = require('./app');
     try {
-      const url = normalizeServer(value);
+      const url = await resolveServer(value);
       new Vault().updateSettings((s) => { s.server = url; });
     } catch (e) {
-      die(e.message, 2);
+      die(`Couldn't use ${value}: ${e.message}`, 2);
     }
+  }
+
+  // gossip --classic / gossip --full: pick the look for this run
+  let view = '';
+  for (const [flagName, v] of [['--classic', 'classic'], ['--full', 'full']]) {
+    const i = args.indexOf(flagName);
+    if (i >= 0) { args.splice(i, 1); view = v; }
   }
 
   const word = (args[0] || '').toLowerCase();
   const rest = args.slice(1);
-  if (!word) return live();
+  if (!word) return live({ view });
   if (word === 'serve') {
     await require('../server/relay').serve(rest);
     return 'stay'; // the relay keeps the process alive
   }
   if (word === 'update') return update();
+  if (word === 'nearby') return nearby(rest, view);
+  if (word === '__update') return require('./update').check(rest[0] === 'notify' ? 'notify' : 'auto').then(() => {}, () => {});
   if (word === 'check') return check();
   if (word === 'listen') return listen(rest);
   if (word === '--version' || word === '-v' || word === 'version') return console.log(`gossip ${pkg.version}`);
@@ -328,7 +479,7 @@ async function main(argv) {
 
   const cmd = find(word);
   if (!cmd || cmd.where === 'shell') {
-    const close = didYouMean(word, ['check', 'listen', 'serve', 'update']);
+    const close = didYouMean(word, ['check', 'listen', 'nearby', 'serve', 'update']);
     die(`There's no "gossip ${word}".${close ? ` Did you mean: gossip ${close}?` : ''} See them all: gossip help`, 2);
   }
   return oneShot(cmd, rest);

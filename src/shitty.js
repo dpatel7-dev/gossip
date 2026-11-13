@@ -16,9 +16,10 @@ const M = require('./mascot');
 const prefs = require('./prefs');
 const { plural } = require('./text');
 const { Editor } = require('./editor');
-const { runCommand, suggest, resolveTarget, sendFromShell, replay, pretty } = require('./commands');
+const { suggest, handleInput, replay, pretty } = require('./commands');
+const { Menu } = require('./menu');
 
-function run(app, { firstRun = false } = {}) {
+function run(app, { firstRun = false, notice = null } = {}) {
   return new Promise((resolve) => {
     const out = process.stdout;
     const inp = process.stdin;
@@ -73,7 +74,7 @@ function run(app, { firstRun = false } = {}) {
       } else right = Th.dim('not connected');
       // the left side shrinks first, so who-you-are and the connection stay readable
       const rw = A.vwidth(right);
-      const options = flashing ? [flash.text] : typing ? [typing] : quiet ? [''] : ['/help for commands · tab switches chats', '/help for commands', '/help', ''];
+      const options = flashing ? [flash.text] : typing ? [typing] : menu.active || quiet ? [''] : ['tab opens the menu · /help for commands', 'tab opens the menu', 'tab: menu', ''];
       const text = options.find((t) => 2 + A.width(t) + 2 + rw <= w);
       const left = '  ' + Th.dim(text === undefined ? A.ellipsis(options[0], Math.max(0, w - rw - 4)) : text);
       const lw = A.vwidth(left);
@@ -121,6 +122,7 @@ function run(app, { firstRun = false } = {}) {
       const w = Math.max(20, cols - 1); // never write into the last column
       const lines = [];
       if (stage) for (const l of stage.block(cols)) lines.push(A.clip(l, w));
+      if (menu.active) for (const l of menu.lines(w - 1, Math.max(5, rows - lines.length - 8))) lines.push(' ' + l);
       const top = lines.length;
 
       const style = prefs.val('prompt.style');
@@ -149,7 +151,7 @@ function run(app, { firstRun = false } = {}) {
         col = pw + lay.col;
       }
 
-      refreshPalette();
+      if (menu.active) pal = null; else refreshPalette();
       if (pal) for (const l of paletteLines(w, Math.max(1, Math.min(6, rows - lines.length - 3)))) lines.push(l);
       else {
         const f = footer(w);
@@ -322,6 +324,10 @@ function run(app, { firstRun = false } = {}) {
       inp.pause();
     }
 
+    let result = {};
+    const hooks = [];
+    const hook = (target, event, fn) => { target.on(event, fn); hooks.push([target, event, fn]); };
+
     function quit() {
       if (closed) return;
       if (stage) {
@@ -330,11 +336,10 @@ function run(app, { firstRun = false } = {}) {
       }
       closed = true;
       clearInterval(ticker);
-      inp.removeListener('keypress', onKey);
-      out.removeListener('resize', onResize);
+      for (const [target, event, fn] of hooks) target.removeListener(event, fn);
       restore();
       region = null;
-      resolve();
+      resolve(result);
     }
 
     function crash(err) {
@@ -350,28 +355,18 @@ function run(app, { firstRun = false } = {}) {
 
     // ── what you type ─────────────────────────────────────────────────────
 
-    const ctx = { app, shell: true, quit, play };
-
-    async function handle(raw) {
-      const literal = raw[0] === ' '; // a leading space means "send this exactly as typed"
-      const text = raw.trim();
-      if (!literal && text[0] === '/' && text[1] !== '/') return runCommand(ctx, text.slice(1));
-      if (!literal) {
-        const m = /^([@#][A-Za-z0-9_-]+)(?:\s+([\s\S]+))?$/.exec(text);
-        if (m) {
-          const key = await resolveTarget(app, m[1]);
-          app.setTarget(key);
-          if (m[2] && m[2].trim()) sendFromShell(app, key, m[2]);
-          return undefined;
-        }
-      }
-      if (!app.target) {
-        app.say('Who to? Start with @username or #server - for example: @maya hey', 'warn');
-        return undefined;
-      }
-      sendFromShell(app, app.target, !literal && text.startsWith('//') ? text.slice(1) : text);
-      return undefined;
-    }
+    const ctx = {
+      app, shell: true, quit, play, view: 'classic',
+      noTarget: 'Who to? Press Tab to pick someone, or start with @username - for example: @maya hey',
+      switchView(view) {
+        prefs.set(app.vault, 'view', view);
+        app.settings = app.vault.loadSettings();
+        result = { switch: view };
+        quit();
+      },
+    };
+    const menu = new Menu(ctx, () => schedule());
+    const handle = (raw) => handleInput(ctx, raw);
 
     function submit() {
       let text = ed.text;
@@ -444,6 +439,7 @@ function run(app, { firstRun = false } = {}) {
 
       if (seq === '\x1b[200~' || name === 'paste-start') { pasting = true; return; }
       if (seq === '\x1b[201~' || name === 'paste-end') { pasting = false; schedule(); return; }
+      if (menu.active && !pasting) { menu.key(str, key); schedule(); return; }
       const before = ed.text;
 
       if (pasting) {
@@ -486,7 +482,8 @@ function run(app, { firstRun = false } = {}) {
           case 'down': if (pal) movePalette(1); else recall(1); break;
           case 'tab':
             if (pal) completeFromPalette();
-            else if (!ed.text) cycleTarget(key.shift ? -1 : 1);
+            else if (!ed.text && key.shift) cycleTarget(1); // Shift+Tab: hop to the next chat
+            else if (!ed.text) menu.open();
             break;
           default:
             if (printable(str)) ed.insert(str);
@@ -519,37 +516,40 @@ function run(app, { firstRun = false } = {}) {
 
     // ── wiring ────────────────────────────────────────────────────────────
 
-    app.on('line', show);
-    app.on('change', onChange);
-    app.on('flash', (text) => {
+    hook(app, 'line', show);
+    hook(app, 'change', onChange);
+    hook(app, 'flash', (text) => {
       flash = { text, until: Date.now() + 3000 };
       schedule();
     });
-    app.on('bell', () => {
+    hook(app, 'bell', () => {
       // only make a sound if you don't seem to be looking (nothing typed for a bit)
       if (!closed && Date.now() - lastKeyAt > 10000) out.write('\x07');
     });
 
-    process.on('SIGTERM', quit);
-    process.on('SIGHUP', quit);
-    process.on('uncaughtException', crash);
+    hook(process, 'SIGTERM', quit);
+    hook(process, 'SIGHUP', quit);
+    hook(process, 'uncaughtException', crash);
     // a failed background task shouldn't take the whole chat down with it
-    process.on('unhandledRejection', (e) => {
+    hook(process, 'unhandledRejection', (e) => {
       if (!closed) app.say(`Something went wrong: ${(e && e.message) || e}`, 'err');
     });
 
     readline.emitKeypressEvents(inp, { escapeCodeTimeout: 50 });
     inp.setRawMode(true);
     inp.resume();
-    inp.on('keypress', onKey);
-    out.on('resize', onResize);
+    hook(inp, 'keypress', onKey);
+    hook(out, 'resize', onResize);
     out.write('\x1b[?2004h'); // bracketed paste: pasted newlines don't send half a message
 
     shownTarget = app.target;
-    app.connect().catch((e) => {
-      if (e.code === 'no_server') app.say('No relay is set. Use /relay <address> to connect to one.', 'warn');
-    });
+    if (!app.link) {
+      app.connect().catch((e) => {
+        if (e.code === 'no_server') app.say('No relay is set. Use /relay <address> to connect to one.', 'warn');
+      });
+    }
     greet();
+    if (notice) app.say(notice, 'sys');
 
     const ticker = setInterval(() => {
       app.tick();

@@ -19,6 +19,8 @@ const ANSI_NAMES = [
 ];
 
 const OPTIONS = [
+  { key: 'view', choices: ['full', 'classic'], def: 'full', desc: 'The full chat screen, or the classic scrolling look' },
+  { key: 'mouse', choices: ['on', 'off'], def: 'on', desc: 'Click and scroll in the full chat screen (off = select text freely)' },
   { key: 'theme', choices: THEME_NAMES, def: 'arctic', desc: 'Colour scheme' },
   { key: 'mascot', choices: ['random', 'dance', 'phone', 'laptop', 'off'], def: 'random', desc: 'What the penguin is up to when gossip opens' },
   { key: 'mascot.animate', choices: ['on', 'off'], def: 'on', desc: 'Let the penguin move (off = a still picture)' },
@@ -36,7 +38,8 @@ const OPTIONS = [
   { key: 'typing', choices: ['on', 'off'], def: 'on', desc: 'Show (and send) "is typing…"' },
   { key: 'receipts', choices: ['on', 'off'], def: 'on', desc: 'Tell you when a DM is delivered' },
   { key: 'presence', choices: ['on', 'off'], def: 'on', desc: 'Tell you when a contact comes online' },
-  { key: 'recap', number: [0, 50], def: 0, desc: 'Messages to replay when you switch to a chat' },
+  { key: 'recap', number: [0, 50], def: 0, desc: 'Messages to replay when you switch to a chat (classic look)' },
+  { key: 'update', choices: ['auto', 'notify', 'off'], def: 'auto', desc: 'Get new versions by itself, just tell you, or never check' },
 ];
 
 const byKey = new Map(OPTIONS.map((o) => [o.key, o]));
