@@ -595,7 +595,16 @@ const HANDLERS = {
       if (room.owner !== s.name) return this._err(s, m, 'not_owner', `Only the owner of #${room.name} (${room.owner}) can remove people`);
       if (!P.validName(m.name)) return this._err(s, m, 'bad_name', 'Who do you want to remove?');
       if (m.name === s.name) return this._err(s, m, 'bad_name', "You can't remove yourself - leave instead");
-      if (!room.members.has(m.name)) return this._err(s, m, 'not_there', `${m.name} isn't in #${room.name}`);
+      if (!room.members.has(m.name)) {
+        // Not in the server (maybe only invited, maybe never here): keep them out.
+        const outsider = this.db.users.get(m.name);
+        if (!outsider) return this._err(s, m, 'not_there', `There's no user called "${m.name}"`);
+        room.invited.delete(m.name);
+        outsider.invites.delete(room.name);
+        room.banned.add(m.name);
+        this.db.touch();
+        return this._ok(s, m, { blocked: true });
+      }
       room.members.delete(m.name);
       room.invited.delete(m.name);
       room.banned.add(m.name);
@@ -606,6 +615,23 @@ const HANDLERS = {
       if (told) this._pushTo(m.name, { t: 'room', room: room.name, event: 'kicked', by: s.name });
       else if (target && target.notices.length < 20) target.notices.push({ kind: 'kicked', room: room.name, by: s.name });
       const note = { t: 'room', room: room.name, event: 'kick', name: m.name, by: s.name };
+      this._roomCast(room, note, s.name);
+      this._pushTo(s.name, note, s);
+      this._ok(s, m, {});
+    },
+  },
+
+  // The owner hands the server to another member.
+  owner: {
+    run(s, m) {
+      const room = this.db.rooms.get(m.room);
+      if (!room || !room.members.has(s.name)) return this._err(s, m, 'not_member', "You're not in that server");
+      if (room.owner !== s.name) return this._err(s, m, 'not_owner', `Only the owner of #${room.name} (${room.owner}) can hand it over`);
+      if (m.name === s.name) return this._err(s, m, 'bad_name', 'You already own it');
+      if (!P.validName(m.name) || !room.members.has(m.name)) return this._err(s, m, 'not_there', `${String(m.name).slice(0, 24)} isn't in #${room.name}`);
+      room.owner = m.name;
+      this.db.touch();
+      const note = { t: 'room', room: room.name, event: 'owner', name: m.name, by: s.name };
       this._roomCast(room, note, s.name);
       this._pushTo(s.name, note, s);
       this._ok(s, m, {});

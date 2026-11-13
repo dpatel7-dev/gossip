@@ -197,7 +197,8 @@ function applyStaged(where = install()) {
   try {
     if (!where.managed) return null;
     const version = fs.readFileSync(path.join(where.next, '.ready'), 'utf8').trim();
-    if (!newer(version, currentVersion())) {
+    const from = currentVersion();
+    if (!newer(version, from)) {
       fs.rmSync(where.next, { recursive: true, force: true });
       return null;
     }
@@ -212,7 +213,9 @@ function applyStaged(where = install()) {
     }
     try { fs.rmSync(path.join(where.app, '.ready'), { force: true }); } catch { /* harmless */ }
     try { fs.rmSync(old, { recursive: true, force: true }); } catch { /* cleaned up next time */ }
-    writeState(where.state, { ...readState(where.state), updatedTo: version, updatedAt: Date.now(), told: false });
+    const state = readState(where.state);
+    const log = (Array.isArray(state.log) ? state.log : []).concat({ at: Date.now(), from, to: version }).slice(-20);
+    writeState(where.state, { ...state, updatedTo: version, updatedAt: Date.now(), told: false, log });
     return version;
   } catch {
     return null;
@@ -264,7 +267,7 @@ function news(mode) {
     const state = readState(where.state);
     if (state.updatedTo && !state.told && state.updatedTo === currentVersion()) {
       writeState(where.state, { ...state, told: true });
-      return `gossip updated itself to v${state.updatedTo}.`;
+      return `gossip updated itself to v${state.updatedTo}. See what changed: /changelog`;
     }
     if (mode === 'notify' && state.available && newer(state.available, currentVersion())) {
       return `gossip v${state.available} is out - get it with: gossip update`;
@@ -273,4 +276,27 @@ function news(mode) {
   return null;
 }
 
-module.exports = { install, config, currentVersion, newer, fetch, untar, latest, stage, applyStaged, check, kick, news };
+/** CHANGELOG.md as [{ version, lines }], newest first. */
+function changelog() {
+  let text = '';
+  try {
+    text = fs.readFileSync(path.join(APP_DIR, 'CHANGELOG.md'), 'utf8');
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    const head = /^##\s+v?(\d+\.\d+\.\d+)/.exec(line);
+    if (head) out.push({ version: head[1], lines: [] });
+    else if (out.length && /^\s*[-*]\s+/.test(line)) out[out.length - 1].lines.push(line.replace(/^\s*[-*]\s+/, '').replace(/[`*]/g, ''));
+  }
+  return out;
+}
+
+/** When this computer's copy was updated: [{ at, from, to }], oldest first. */
+function history() {
+  const log = readState(install().state).log;
+  return Array.isArray(log) ? log.filter((h) => h && h.to) : [];
+}
+
+module.exports = { changelog, history, install, config, currentVersion, newer, fetch, untar, latest, stage, applyStaged, check, kick, news };

@@ -183,6 +183,21 @@ Colour parts: `accent` `accent2` `border` `dim` `ok` `warn` `err` `server`
 
 Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop`.
 
+## More things it can do
+
+```sh
+gossip mute maya            # no sound or unread count for a chat (same command to undo)
+gossip find pizza           # search your saved messages
+gossip export maya          # save a chat to a text file
+gossip give maya gamedev    # hand a server you own to another member
+gossip kick sam gamedev     # owner only; works even if sam is offline or hasn't joined yet
+gossip changelog            # what's new in each version
+gossip uninstall            # remove gossip (asks first; can keep your account)
+```
+
+All of these are in the Tab menu too. Your People list only ever holds people
+you added yourself; a message from anyone else shows under "Others" until you've read it.
+
 ## No internet? `gossip nearby`
 
 ```sh
@@ -324,7 +339,7 @@ Anyone who installs after that skips the "where do your friends chat?" question.
 | Your account | `~/.gossip/identity.json` (back it up; copy it to move to another computer) |
 | Settings, contacts, history | `~/.gossip/` |
 | Relay data | `~/.gossip-server/` on the machine running `gossip serve` |
-| Uninstall | `rm -rf ~/.gossip ~/.local/bin/gossip` (Windows: delete `%USERPROFILE%\.gossip`) |
+| Uninstall (old way) | `rm -rf ~/.gossip ~/.local/bin/gossip` (Windows: delete `%USERPROFILE%\.gossip`) |
 | No colours | set `NO_COLOR=1`, or `gossip config theme mono` |
 
 ## For developers

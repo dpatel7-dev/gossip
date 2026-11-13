@@ -1,0 +1,177 @@
+'use strict';
+// The 0.3 additions, driven through real clients against a real relay.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { Relay } = require('../server/relay');
+const { App } = require('../src/app');
+const { Vault } = require('../src/vault');
+const { runCommand, people } = require('../src/commands');
+const U = require('../src/update');
+const M = require('../src/mascot');
+
+const REPO = path.join(__dirname, '..');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, what, ms = 5000) {
+  const end = Date.now() + ms;
+  while (!fn()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await sleep(20);
+  }
+}
+const dirs = [];
+function tmp() {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gossip-feat-'));
+  dirs.push(d);
+  return d;
+}
+test.after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+
+async function person(relay, name) {
+  const dir = tmp();
+  const url = `ws://127.0.0.1:${relay.port}`;
+  await new App({ vault: new Vault(dir), server: url }).register(name);
+  const app = new App({ vault: new Vault(dir), server: url, shell: true });
+  app.shown = [];
+  app.on('line', (i) => app.shown.push(i));
+  app.ctx = { app, shell: true, quit() {} };
+  app.dir = dir;
+  await app.connect();
+  return app;
+}
+const notes = (app) => app.shown.filter((i) => i.t === 'note').map((i) => i.text);
+const table = (app) => app.shown.filter((i) => i.t === 'rows').map((i) => i.rows.map((r) => r.map((c) => c[0]).join('')).join('\n')).join('\n');
+
+test('servers: remove people who are offline or not in yet, and hand a server over', async () => {
+  const relay = await new Relay({ port: 0, dataDir: tmp(), quiet: true }).start();
+  const ann = await person(relay, 'ann');
+  const ben = await person(relay, 'ben');
+  const cat = await person(relay, 'cat');
+  try {
+    await runCommand(ann.ctx, 'create den');
+    await runCommand(ben.ctx, 'join den');
+    await until(() => ann.chat('#den').members.has('ben'), 'ben to join');
+
+    // ben goes offline, then gets removed
+    await ben.closeGracefully();
+    await runCommand(ann.ctx, 'kick ben den');
+    assert.match(notes(ann).join('\n'), /Removed ben from #den/);
+    const back = new App({ vault: new Vault(ben.dir), server: ann.serverUrl, shell: true });
+    back.shown = [];
+    back.on('line', (i) => back.shown.push(i));
+    back.ctx = { app: back, shell: true, quit() {} };
+    await back.connect();
+    await until(() => notes(back).some((t) => /removed from #den/i.test(t)), 'ben to be told when he returns');
+    await assert.rejects(runCommand(back.ctx, 'join den'), /removed/);
+
+    // cat was never in: she can be kept out ahead of time, and an invite is cancelled
+    await runCommand(ann.ctx, 'invite cat den');
+    await until(() => cat.invites.has('den'), "cat's invite");
+    await runCommand(ann.ctx, 'kick cat den');
+    assert.match(notes(ann).join('\n'), /cat wasn't in #den\. They're now kept out/);
+    await assert.rejects(runCommand(cat.ctx, 'join den'), /removed/);
+    await assert.rejects(runCommand(ann.ctx, 'kick nobody-here den'), /no user called/);
+
+    // handing over: only the owner can, and the new owner gets the powers
+    await runCommand(ann.ctx, 'invite cat den'); // the owner's invite lets her back in
+    await runCommand(cat.ctx, 'join den');
+    await until(() => ann.chat('#den').members.has('cat'), 'cat to join');
+    await assert.rejects(runCommand(cat.ctx, 'give ann den'), /Only the owner/);
+    await runCommand(ann.ctx, 'give cat den');
+    await until(() => cat.chat('#den').owner === 'cat', 'cat to learn she owns it');
+    assert.equal(ann.chat('#den').owner, 'cat');
+    await assert.rejects(runCommand(ann.ctx, 'kick cat den'), /Only the owner/);
+    await back.closeGracefully();
+  } finally {
+    for (const a of [ann, cat]) await a.closeGracefully();
+    await relay.stop();
+  }
+});
+
+test('chats: your People list is only who you added; mute, find and export', async () => {
+  const relay = await new Relay({ port: 0, dataDir: tmp(), quiet: true }).start();
+  const ann = await person(relay, 'ann');
+  const ben = await person(relay, 'ben');
+  try {
+    await ben.send('@ann', 'pizza on friday?');
+    await until(() => ann.shown.some((i) => i.t === 'msg'), 'the message');
+    assert.deepEqual(people(ann), [], 'being messaged does not put someone on your list');
+    await runCommand(ann.ctx, 'add ben');
+    assert.deepEqual(people(ann).map((p) => p.name), ['ben']);
+
+    let bells = 0;
+    ann.on('bell', () => { bells++; });
+    await runCommand(ann.ctx, 'mute ben');
+    assert.equal(ann.muted('@ben'), true);
+    await ben.send('@ann', 'hello? pizza?');
+    await until(() => ann.shown.filter((i) => i.t === 'msg').length === 2, 'the second message');
+    assert.equal(bells, 0, 'a muted chat stays quiet');
+    await runCommand(ann.ctx, 'mute ben');
+    assert.equal(ann.muted('@ben'), false);
+
+    ann.shown.length = 0;
+    await runCommand(ann.ctx, 'find PIZZA');
+    assert.match(table(ann), /2 messages mentioning "PIZZA"/);
+    assert.match(table(ann), /ben: pizza on friday\?/);
+    await runCommand(ann.ctx, 'find unicorns');
+    assert.match(notes(ann).join('\n'), /Nothing saved/);
+
+    const file = path.join(tmp(), 'out.txt');
+    await runCommand(ann.ctx, `export ben ${file}`);
+    const text = fs.readFileSync(file, 'utf8');
+    assert.match(text, /^gossip chat with ben, saved /);
+    assert.match(text, /\] ben: pizza on friday\?\n/);
+  } finally {
+    await ann.closeGracefully();
+    await ben.closeGracefully();
+    await relay.stop();
+  }
+});
+
+test('update notes: the changelog is readable and covers this version', () => {
+  const log = U.changelog();
+  assert.equal(log[0].version, U.currentVersion(), 'CHANGELOG.md starts with the version in package.json');
+  assert.ok(log[0].lines.length > 0);
+  const r = spawnSync(process.execPath, [path.join(REPO, 'bin', 'gossip.js'), 'changelog'], { encoding: 'utf8', env: { ...process.env, GOSSIP_HOME: tmp(), NO_COLOR: '1' } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`gossip ${U.currentVersion().replace(/\./g, '\\.')}\\s+\\(this one\\)`));
+});
+
+test('uninstall: removes the app and the command, keeps the account unless told otherwise', () => {
+  const setup = () => {
+    const root = tmp();
+    fs.cpSync(REPO, path.join(root, 'app'), { recursive: true, filter: (src) => !/[\\/](\.git|node_modules|docs)([\\/]|$)/.test(src) });
+    const bin = path.join(root, 'elsewhere', 'gossip');
+    fs.mkdirSync(path.dirname(bin));
+    fs.writeFileSync(bin, '#!/bin/sh\n# gossip launcher - written by install.sh.\n');
+    fs.writeFileSync(path.join(root, 'launcher'), bin + '\n');
+    fs.writeFileSync(path.join(root, 'identity.json'), '{}');
+    return { root, bin };
+  };
+  const run = (root, args) => spawnSync(process.execPath, [path.join(root, 'app', 'bin', 'gossip.js'), ...args], {
+    encoding: 'utf8', env: { ...process.env, GOSSIP_HOME: root, HOME: root, USERPROFILE: root, NO_COLOR: '1', GOSSIP_NO_UPDATE: '1' },
+  });
+
+  const a = setup();
+  assert.match(run(a.root, ['uninstall']).stderr, /Add --yes/, 'never removes anything without a yes');
+  assert.ok(fs.existsSync(path.join(a.root, 'app')));
+  const r = run(a.root, ['delete', '--yes']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /gossip is removed\. Your account and messages are still in/);
+  assert.equal(fs.existsSync(path.join(a.root, 'app')), false);
+  assert.equal(fs.existsSync(a.bin), false);
+  assert.ok(fs.existsSync(path.join(a.root, 'identity.json')), 'the account stays');
+
+  const b = setup();
+  assert.equal(run(b.root, ['uninstall', '--yes', '--everything']).status, 0);
+  assert.equal(fs.existsSync(b.root), false);
+});
+
+test('penguin: solid areas are painted as backgrounds, so line spacing leaves no gaps', () => {
+  const lines = M.still('dance', { mode: 'rgb' });
+  assert.equal(lines.length, M.HEIGHT);
+  assert.ok(!lines.join('').includes('█'), 'no full-block characters');
+});

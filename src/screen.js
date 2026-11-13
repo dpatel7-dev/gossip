@@ -48,7 +48,6 @@ function run(app, { firstRun = false, notice = null } = {}) {
     let scheduled = false;
     let prev = []; // the lines on screen right now
     let cache = null; // wrapped lines of the open chat
-    let convs = { at: 0, keys: [] };
     let hits = []; // which row of the left column is which
     let geo = null;
     let carry = '';
@@ -140,15 +139,20 @@ function run(app, { firstRun = false, notice = null } = {}) {
     // ── the left column ─────────────────────────────────────────────────────
 
     function sideRows() {
-      const now = Date.now();
-      if (now - convs.at > 2000) convs = { at: now, keys: app.vault.conversations() };
+      // People = the contacts you added. Anyone else only appears while they have
+      // something unread for you (or you have their chat open), under "Others".
       const dms = app.contacts().map((p) => '@' + p.name);
-      for (const k of convs.keys) if (k[0] === '@' && !dms.includes(k)) dms.push(k);
-      for (const k of items.keys()) if (k[0] === '@' && !dms.includes(k)) dms.push(k);
-      for (const k of unread.keys()) if (k[0] === '@' && !dms.includes(k)) dms.push(k);
+      const others = [];
+      for (const k of [...unread.keys(), sel]) if (k && k[0] === '@' && !dms.includes(k) && !others.includes(k)) others.push(k);
       const rows = [{ head: 'People' }];
       for (const key of dms) rows.push({ id: key, chat: key });
-      rows.push({ id: 'a:add', label: '+ Add a person' }, { gap: true }, { head: 'Servers' });
+      rows.push({ id: 'a:add', label: '+ Add a person' }, { gap: true });
+      if (others.length) {
+        rows.push({ head: 'Others' });
+        for (const key of others) rows.push({ id: key, chat: key });
+        rows.push({ gap: true });
+      }
+      rows.push({ head: 'Servers' });
       for (const r of app.rooms()) rows.push({ id: '#' + r, chat: '#' + r });
       for (const [room, by] of app.invites) rows.push({ id: 'a:join:' + room, label: '#' + room, tag: `from ${by}` });
       rows.push({ id: 'a:servers', label: '+ Join or create' }, { gap: true }, { id: 'a:menu', label: '≡ Menu', tag: 'tab' });
@@ -172,7 +176,8 @@ function run(app, { firstRun = false, notice = null } = {}) {
         } else {
           left = Th.paint('server', '#') + ' ' + A.paint(name, { ...(n || isOpen ? { bold: true } : {}), ...(isOpen ? Th.style('accent') : {}) });
         }
-        if (n) right = Th.accent2(String(n > 99 ? '99+' : n), { bold: true, inverse: true });
+        if (app.muted(row.chat)) right = Th.dim('muted');
+        else if (n) right = Th.accent2(String(n > 99 ? '99+' : n), { bold: true, inverse: true });
       } else {
         left = on ? Th.accent(row.label) : Th.dim(row.label);
         if (row.tag) right = Th.dim(row.tag);

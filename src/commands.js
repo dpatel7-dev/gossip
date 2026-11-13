@@ -170,6 +170,91 @@ const COMMANDS = [
     },
   },
   {
+    name: 'mute', aliases: ['unmute', 'quiet'], args: '[who]', complete: 'target', group: 'Chat',
+    desc: 'Stop (or start again) the sound and unread count for a chat',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const key = args[0] ? resolveLocal(app, args[0]) : app.target;
+      if (!key) throw usage(ctx, this);
+      const was = app.muted(key);
+      app.settings = app.vault.updateSettings((s) => {
+        const list = Array.isArray(s.muted) ? s.muted.filter((k) => k !== key) : [];
+        if (!was) list.push(key);
+        s.muted = list;
+      });
+      app.emit('change');
+      app.say(was ? `${pretty(key)} is unmuted.` : `${pretty(key)} is muted - messages still arrive, quietly. Same command to undo.`, 'ok');
+    },
+  },
+  {
+    name: 'find', aliases: ['search', 'grep'], args: '<words>', need: 1, group: 'Chat',
+    desc: 'Search your saved messages',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const want = args.join(' ').toLowerCase();
+      const hits = [];
+      for (const key of app.vault.conversations()) {
+        for (const r of app.vault.loadHistory(key, 5000)) {
+          if (typeof r.text === 'string' && r.text.toLowerCase().includes(want)) hits.push({ key, r });
+        }
+      }
+      hits.sort((a, b) => b.r.ts - a.r.ts);
+      if (!hits.length) return app.say(`Nothing saved on this computer mentions "${args.join(' ')}".`, 'sys');
+      const rows = [[[`${plural(hits.length, 'message')} mentioning "${args.join(' ')}"${hits.length > 20 ? ' (newest 20)' : ''}`, 'head']]];
+      for (const { key, r } of hits.slice(0, 20).reverse()) {
+        const d = new Date(r.ts);
+        rows.push([
+          [`  ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).padEnd(7)}`, 'dim'],
+          [pretty(key).padEnd(14) + ' ', key[0] === '#' ? 'room' : 'accent'],
+          [(r.from === app.me ? prefs.val('you') : r.from) + ': ', 'bold'],
+          [r.text.replace(/\s+/g, ' ').slice(0, 160), null],
+        ]);
+      }
+      return app.rows(rows);
+    },
+  },
+  {
+    name: 'export', aliases: ['save'], args: '[who] [file]', complete: 'target', group: 'Chat',
+    desc: 'Save a chat to a text file',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const fs = require('fs');
+      const path = require('path');
+      const key = args[0] ? resolveLocal(app, args[0]) : app.target;
+      if (!key) throw usage(ctx, this);
+      const list = app.vault.loadHistory(key, 100000).filter((r) => typeof r.text === 'string' && typeof r.from === 'string');
+      if (!list.length) return app.say(`No saved messages with ${pretty(key)} yet.`, 'sys');
+      const pad = (n) => String(n).padStart(2, '0');
+      const stamp = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+      const file = path.resolve(args[1] || `gossip-${key.slice(1)}-${stamp(Date.now()).slice(0, 10)}.txt`);
+      const text = [`gossip chat with ${pretty(key)}, saved ${stamp(Date.now())}`, '']
+        .concat(list.map((r) => `[${stamp(r.ts)}] ${r.from}: ${r.text}`)).join('\n') + '\n';
+      fs.writeFileSync(file, text);
+      return app.say(`Saved ${plural(list.length, 'message')} to ${file}`, 'ok');
+    },
+  },
+  {
+    name: 'changelog', aliases: ['news', 'whatsnew', 'updates'], args: '[all]', group: 'Setup',
+    desc: "See what's new in each version",
+    async run(ctx, args) {
+      const U = require('./update');
+      const log = U.changelog();
+      if (!log.length) return ctx.app.say('No update notes came with this copy.', 'sys');
+      const rows = [];
+      for (const entry of (args[0] === 'all' ? log : log.slice(0, 3))) {
+        rows.push([[`gossip ${entry.version}`, 'head'], [entry.version === U.currentVersion() ? '  (this one)' : '', 'dim']]);
+        for (const line of entry.lines) rows.push([['  · ', 'dim'], [line, null]]);
+      }
+      const hist = U.history().slice(-3);
+      if (hist.length) {
+        rows.push([['On this computer', 'head']]);
+        for (const h of hist) rows.push([['  · ', 'dim'], [`${new Date(h.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}: updated from ${h.from} to ${h.to}`, 'dim']]);
+      }
+      if (args[0] !== 'all' && log.length > 3) rows.push([[`  Older versions: ${ctx.app.hint('changelog all')}`, 'dim']]);
+      return ctx.app.rows(rows);
+    },
+  },
+  {
     name: 'check', group: 'Chat', net: true,
     desc: "See what's new",
     // From your shell this is handled in cli.js (it fetches what was waiting).
@@ -319,17 +404,37 @@ const COMMANDS = [
   },
   {
     name: 'kick', aliases: ['boot'], args: '<user> [server]', need: 1, complete: 'member', group: 'Servers', net: true,
-    desc: 'Remove someone from a server you own',
+    desc: 'Remove someone from a server you own (works whether or not they are online or have joined yet)',
     async run(ctx, args) {
       const { app } = ctx;
       const name = userArg(app, args[0]);
       if (!name) throw usage(ctx, this);
       const room = roomOrCurrent(app, args[1], 'kick <user> <server>');
       needOnline(app);
-      await app.link.request('kick', { room, name });
+      const res = await app.link.request('kick', { room, name });
       const chat = app.chats.get('#' + room);
       if (chat) chat.members.delete(name);
+      if (res && res.blocked) {
+        app.say(`${name} wasn't in #${room}. They're now kept out (any invite is cancelled) unless you invite them: ${app.hint(`invite ${name} ${room}`)}`, 'ok');
+        return;
+      }
       app.say(`Removed ${name} from #${room}. They can't come back unless you invite them: ${app.hint(`invite ${name} ${room}`)}`, 'ok');
+    },
+  },
+  {
+    name: 'give', aliases: ['handover', 'owner'], args: '<user> [server]', need: 1, complete: 'member', group: 'Servers', net: true,
+    desc: 'Hand a server you own to another member',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const name = userArg(app, args[0]);
+      if (!name) throw usage(ctx, this);
+      const room = roomOrCurrent(app, args[1], 'give <user> <server>');
+      needOnline(app);
+      await app.link.request('owner', { room, name });
+      const chat = app.chats.get('#' + room);
+      if (chat) chat.owner = name;
+      app.emit('change');
+      app.say(`${name} owns #${room} now.`, 'ok');
     },
   },
   {
@@ -667,6 +772,7 @@ function helpRows(shell, view) {
     rows.push([['  ' + 'gossip --classic'.padEnd(w), null], ['Open the chat in the classic scrolling look (or: --full)', 'dim']]);
     rows.push([['  ' + 'gossip nearby'.padEnd(w), null], ['Chat with people on the same Wi-Fi or cable - no internet needed', 'dim']]);
     rows.push([['  ' + 'gossip serve'.padEnd(w), null], ['Run your own relay (gossip serve --help)', 'dim']]);
+    rows.push([['  ' + 'gossip uninstall'.padEnd(w), null], ['Remove gossip from this computer (also: gossip delete)', 'dim']]);
     rows.push([['  ' + 'gossip update'.padEnd(w), null], ['Get the latest version', 'dim']]);
     rows.push([['Names work bare: "gossip squawk maya hi", "gossip squawk gamedev hi".', 'dim']]);
   }
@@ -726,13 +832,8 @@ async function handleInput(ctx, raw) {
 function people(app) {
   const out = [];
   for (const p of app.contacts()) out.push({ name: p.name, desc: app.presence.get(p.name) ? 'contact · online' : 'contact' });
-  const seen = new Set(out.map((x) => x.name));
-  for (const key of app.vault.conversations()) {
-    if (key[0] === '@' && !seen.has(key.slice(1))) { seen.add(key.slice(1)); out.push({ name: key.slice(1), desc: 'recent chat' }); }
-  }
-  for (const p of app.peers.values()) {
-    if (!seen.has(p.name) && p.name !== app.me) out.push({ name: p.name, desc: 'seen in a server' });
-  }
+  // Only people you added yourself. Someone you've merely seen in a server, or who
+  // messaged you once, doesn't get put on your list for you.
   return out;
 }
 

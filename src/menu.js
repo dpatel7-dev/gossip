@@ -38,6 +38,8 @@ function root(m) {
       { label: 'Servers', desc: 'group chats: join, create, invite, remove', run: () => servers },
       { label: 'People', desc: 'contacts, blocking, safety numbers', run: () => peoplePage },
       { label: 'Make it yours', desc: 'colours, penguin, layout, every setting', run: () => looks },
+      { label: 'This chat', desc: 'mute, search, save to a file', run: () => thisChat },
+      { label: "What's new", desc: 'update notes', run: run(m, 'changelog') },
       { label: 'Help', desc: 'keys and commands', run: run(m, 'help') },
       { label: 'Leave gossip', run: () => m.ctx.quit() },
     ],
@@ -57,6 +59,19 @@ function chats(m) {
   return { title: 'Chat with…', items, filter: true };
 }
 
+function thisChat(m) {
+  const { app } = m;
+  const key = app.target;
+  const items = [];
+  if (key) {
+    items.push({ label: app.muted(key) ? 'Unmute this chat' : 'Mute this chat', desc: 'no sound, no unread count', run: run(m, 'mute') });
+    items.push({ label: 'Save this chat to a file', desc: 'a plain text file in the current folder', run: run(m, 'export') });
+    items.push({ label: 'Show older messages', run: run(m, 'recap 50') });
+  }
+  items.push({ label: 'Find a message…', desc: 'search everything saved on this computer', run: ask('Find a message', 'Words to look for', null, (t) => m.run('find ' + t)) });
+  return { title: key ? `This chat (${key})` : 'Chats', items };
+}
+
 const addPerson = ask('Add a person', 'Their username', 'They get added to your contacts - you can see when they are online.', function add(t) {
   return this.run('add ' + P.cleanName(t));
 });
@@ -72,7 +87,10 @@ function servers(m) {
   if (room) {
     items.push({ label: `Invite someone to #${room}`, run: () => invitePage });
     items.push({ label: `See who is in #${room}`, run: run(m, 'who ' + room) });
-    if (chat && chat.owner === app.me) items.push({ label: `Remove someone from #${room}`, desc: 'you own this server', run: () => kickPage });
+    if (chat && chat.owner === app.me) {
+      items.push({ label: `Remove someone from #${room}`, desc: 'you own this server', run: () => kickPage });
+      items.push({ label: `Hand #${room} to someone else`, desc: 'make another member the owner', run: () => givePage });
+    }
     items.push({ label: `Leave #${room}`, run: confirm(`Leave #${room}?`, `Yes, leave #${room}`, run(m, 'leave ' + room)) });
   }
   items.push({ label: 'My servers', desc: plural(app.rooms().length, 'server'), run: run(m, 'servers') });
@@ -124,20 +142,36 @@ function kickPage(m) {
   const names = chat ? [...chat.members.keys()].filter((n) => n !== app.me) : [];
   return {
     title: `Remove from #${room}`,
-    note: names.length ? 'They stop getting messages and need your invite to come back.' : 'Nobody else is here.',
+    note: 'They stop getting messages and need your invite to come back. It works even if they are offline.',
     items: names.map((n) => ({
       label: '@' + n,
       run: confirm(`Remove ${n} from #${room}?`, `Yes, remove ${n}`, run(m, `kick ${n} ${room}`)),
-    })),
+    })).concat({
+      label: 'Someone not listed…', desc: 'invited but not joined yet, or to keep them out',
+      run: ask(`Keep out of #${room}`, 'Their username', P.NAME_HELP, (t) => m.run(`kick ${P.cleanName(t)} ${room}`)),
+    }),
     filter: true,
   };
 }
 
-function pick(m, title, list, line, empty) {
-  return () => ({
-    title, filter: true, note: list.length ? null : empty,
-    items: list.map((name) => ({ label: '@' + name, run: run(m, `${line} ${name}`) })),
-  });
+function givePage(m) {
+  const { app } = m;
+  const room = currentRoom(app);
+  const chat = app.chats.get('#' + room);
+  const names = chat ? [...chat.members.keys()].filter((n) => n !== app.me) : [];
+  return {
+    title: `Hand over #${room}`, filter: true,
+    note: names.length ? 'The new owner is the only one who can remove people.' : 'Nobody else is here yet.',
+    items: names.map((n) => ({ label: '@' + n, run: confirm(`Make ${n} the owner of #${room}?`, `Yes, hand it to ${n}`, run(m, `give ${n} ${room}`)) })),
+  };
+}
+
+function pick(m, title, list, line, empty, other = false) {
+  return () => {
+    const items = list.map((name) => ({ label: '@' + name, run: run(m, `${line} ${name}`) }));
+    if (other) items.push({ label: 'Someone else…', desc: 'type their username', run: ask(title, 'Their username', P.NAME_HELP, (t) => m.run(`${line} ${P.cleanName(t)}`)) });
+    return { title, filter: true, note: items.length ? null : empty, items };
+  };
 }
 
 function peoplePage(m) {
@@ -150,8 +184,8 @@ function peoplePage(m) {
       { label: 'My contacts', desc: plural(contacts.length, 'contact'), run: run(m, 'contacts') },
       { label: 'Add a person', run: () => addPerson },
       { label: 'Remove a contact', run: pick(m, 'Remove a contact', contacts, 'remove', 'You have no contacts yet.') },
-      { label: 'Check a safety number', desc: "make sure it's really them", run: pick(m, 'Check a safety number', known, 'verify', 'Nobody to check yet.') },
-      { label: 'Block someone', desc: 'their messages stop arriving', run: pick(m, 'Block someone', known, 'block', 'Nobody to block yet.') },
+      { label: 'Check a safety number', desc: "make sure it's really them", run: pick(m, 'Check a safety number', known, 'verify', 'Nobody to check yet.', true) },
+      { label: 'Block someone', desc: 'their messages stop arriving', run: pick(m, 'Block someone', known, 'block', 'Nobody to block yet.', true) },
       { label: 'Unblock someone', run: pick(m, 'Unblock someone', app.settings.blocked.slice(), 'unblock', 'Nobody is blocked.') },
       { label: 'Who am I?', desc: app.me, run: run(m, 'whoami') },
     ],

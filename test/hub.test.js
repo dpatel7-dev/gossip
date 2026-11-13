@@ -168,6 +168,16 @@ test('website: servers, invites, kicking, presence, typing and blocking', opts, 
   assert.equal(msgs(cat, '#club').length, 1, 'nothing reaches someone who was removed');
   await assert.rejects(runCommand(cat.ctx, 'join club'), /removed/);
 
+  // the owner can keep out someone who isn't in (yet), and hand the server over
+  const dan = await signUp(hub, 'dan');
+  await runCommand(ann.ctx, 'kick dan club');
+  assert.ok(notes(ann).some((t) => /dan wasn't in #club/.test(t)));
+  await assert.rejects(runCommand(dan.ctx, 'join club'), /removed/);
+  await dan.closeGracefully();
+  await runCommand(ann.ctx, 'give ben club');
+  await until(() => ben.chat('#club').owner === 'ben', 'ben to learn he owns it');
+  await assert.rejects(runCommand(ann.ctx, 'kick ben club'), /Only the owner/);
+
   // presence is mutual and arrives without asking
   await runCommand(ann.ctx, 'add ben');
   await runCommand(ben.ctx, 'add ann');

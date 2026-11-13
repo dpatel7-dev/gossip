@@ -146,7 +146,18 @@ main() {
     http://* | https://* | ws://* | wss://*) printf '%s\n' "$GOSSIP_HUB" >"$ROOT/hub" ;;
   esac
 
+  # Prefer a folder this terminal already looks in, so `gossip` works right away
+  # without opening a new window.
+  if [ -z "${GOSSIP_BIN_DIR:-}" ]; then
+    for d in "$HOME/.local/bin" "$HOME/bin" /opt/homebrew/bin /usr/local/bin; do
+      case ":$PATH:" in
+        *":$d:"*) if [ -d "$d" ] && [ -w "$d" ]; then BIN_DIR="$d"; break; fi ;;
+      esac
+    done
+  fi
+
   mkdir -p "$BIN_DIR"
+  printf '%s\n' "$BIN_DIR/gossip" >"$ROOT/launcher"
   cat >"$BIN_DIR/gossip" <<EOF
 #!/bin/sh
 # gossip launcher - written by install.sh. Safe to delete; re-run the installer to get it back.
@@ -172,7 +183,10 @@ EOF
   elif [ "$PATH_NOTE" = manual ]; then
     printf '\n%s\n%s\n\n' "  Add $BIN_DIR to your PATH, then start chatting with:  ${B}gossip${N}" "  (or run it directly: $BIN_DIR/gossip)"
   else
-    printf '\n%s\n%s\n\n' "  ${B}Open a new terminal window${N}, then start chatting:  ${B}gossip${N}" "  ${D}(added $BIN_DIR to your PATH in $PATH_NOTE)${N}"
+    printf '\n%s\n' "  ${B}One more step.${N} This window doesn't know the new ${B}gossip${N} command yet. Do ONE of these:"
+    printf '\n%s\n%s\n' "    ${C}a)${N} Close this window, open a new terminal window, and type:  ${B}gossip${N}" "    ${C}b)${N} Or paste this line here and press Enter:"
+    printf '\n%s\n' "         ${B}export PATH=\"$BIN_DIR:\$PATH\" && gossip${N}"
+    printf '\n%s\n\n' "  ${D}(new windows will find it by themselves: $BIN_DIR was added to your PATH in $PATH_NOTE)${N}"
   fi
 }
 

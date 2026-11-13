@@ -332,7 +332,7 @@ test('only the owner can kick; a kicked member stays out until invited back', as
 
   await assert.rejects(bob.link.request('kick', { room: 'den', name: 'carol' }), { code: 'not_owner' });
   await assert.rejects(alice.link.request('kick', { room: 'den', name: 'alice' }), { code: 'bad_name' });
-  await assert.rejects(alice.link.request('kick', { room: 'den', name: 'nobody' }), { code: 'not_there' });
+  await assert.rejects(alice.link.request('kick', { room: 'den', name: 'nobody' }), { code: 'not_there' }, 'someone who does not exist');
   await assert.rejects(carol.link.request('kick', { room: 'nope', name: 'bob' }), { code: 'not_member' });
 
   await alice.link.request('kick', { room: 'den', name: 'carol' });

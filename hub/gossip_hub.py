@@ -713,7 +713,12 @@ class Hub:
         if who == me:
             raise Err('bad_name', "You can't remove yourself - leave instead")
         if not self._is_member(name, who):
-            raise Err('not_there', "%s isn't in #%s" % (who, name))
+            # Not in the server (maybe only invited, maybe never here): keep them out.
+            if not self._user(who):
+                raise Err('not_there', 'There\'s no user called "%s"' % who)
+            self.q('DELETE FROM invited WHERE room=? AND name=?', name, who)
+            self.q('INSERT OR IGNORE INTO banned(room, name) VALUES(?,?)', name, who)
+            return {'blocked': True}
         self.q('DELETE FROM members WHERE room=? AND name=?', name, who)
         self.q('DELETE FROM invited WHERE room=? AND name=?', name, who)
         self.q('INSERT OR IGNORE INTO banned(room, name) VALUES(?,?)', name, who)
@@ -722,6 +727,26 @@ class Hub:
         elif self.one('SELECT COUNT(*) AS n FROM notices WHERE name=?', who)['n'] < 20:
             self.q('INSERT INTO notices(name, body) VALUES(?,?)', who, json.dumps({'kind': 'kicked', 'room': name, 'by': me}))
         note = {'t': 'room', 'room': name, 'event': 'kick', 'name': who, 'by': me}
+        self._room_cast(name, note, me)
+        self._push_to(me, note, s['token'])
+        return {}
+
+    def h_owner(self, s, m, now):
+        """The owner hands the server to another member."""
+        room = self._room(m.get('room'))
+        me = s['name']
+        who = m.get('name')
+        if not room or not self._is_member(room['name'], me):
+            raise Err('not_member', "You're not in that server")
+        name = room['name']
+        if room['owner'] != me:
+            raise Err('not_owner', 'Only the owner of #%s (%s) can hand it over' % (name, room['owner']))
+        if who == me:
+            raise Err('bad_name', 'You already own it')
+        if not valid_name(who) or not self._is_member(name, who):
+            raise Err('not_there', "%s isn't in #%s" % (str(who)[:24], name))
+        self.q('UPDATE rooms SET owner=? WHERE name=?', who, name)
+        note = {'t': 'room', 'room': name, 'event': 'owner', 'name': who, 'by': me}
         self._room_cast(name, note, me)
         self._push_to(me, note, s['token'])
         return {}

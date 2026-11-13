@@ -245,7 +245,10 @@ function cell(top, bottom, mode) {
     return t && b ? '█' : t ? '▀' : '▄';
   }
   const ink = (ch) => (mode === 'ansi' ? INK[ch].ansi : INK[ch].rgb);
-  if (t && b) return t === b ? A.paint('█', { fg: ink(t) }) : A.paint('▀', { fg: ink(t), bg: ink(b) });
+  // Whole cells are coloured with the background, not a block character: a background
+  // fills the full height of the line, while █ leaves thin gaps between lines in
+  // terminals that add line spacing (macOS Terminal does).
+  if (t && b) return t === b ? A.paint(' ', { bg: ink(t) }) : A.paint('▀', { fg: ink(t), bg: ink(b) });
   return t ? A.paint('▀', { fg: ink(t) }) : A.paint('▄', { fg: ink(b) });
 }
 

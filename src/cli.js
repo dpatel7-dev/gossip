@@ -243,6 +243,78 @@ async function listen(args) {
   await new Promise(() => {}); // until Ctrl+C
 }
 
+/**
+ * gossip uninstall (or: gossip delete): take gossip off this computer.
+ *   --yes          don't ask
+ *   --everything   also delete your account keys, contacts and saved messages
+ */
+async function uninstall(args) {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const U = require('./update');
+  const { homeDir } = require('./vault');
+  const say = (kind, text) => console.log(R.noteLines(kind, text, cols()).join('\n'));
+  const where = U.install();
+  const home = homeDir();
+  if (!where.managed) {
+    die(`This copy of gossip wasn't set up by the installer (it looks like a git clone), so there is nothing for me to remove. Delete the folder yourself: ${where.app}`);
+  }
+  let everything = args.includes('--everything');
+  if (!args.includes('--yes') && !args.includes('-y')) {
+    if (!process.stdin.isTTY) die('Add --yes to remove gossip without being asked.');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ask = (q) => new Promise((resolve) => {
+      rl.once('close', () => resolve(''));
+      rl.question('  ' + q + ' ', resolve);
+    });
+    console.log('');
+    const go = /^y/i.test((await ask(A.bold('Remove gossip from this computer?') + Th.dim(' (y/n)'))).trim());
+    if (!go) { rl.close(); return say('sys', 'Nothing was removed.'); }
+    if (!everything) {
+      console.log('  ' + Th.dim('Your account (secret keys), contacts and saved messages can stay, so reinstalling picks up where you left off.'));
+      everything = /^y/i.test((await ask(A.bold('Delete those too?') + Th.dim(" This can't be undone. (y/N)"))).trim());
+    }
+    rl.close();
+  }
+
+  const failed = [];
+  const rm = (p) => {
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+    } catch {
+      failed.push(p);
+    }
+  };
+  // the `gossip` command itself (only files the installer wrote)
+  const launchers = [path.join(os.homedir(), '.local', 'bin', 'gossip'), path.join(where.root, 'bin', 'gossip.cmd')];
+  try { launchers.unshift(fs.readFileSync(path.join(where.root, 'launcher'), 'utf8').trim()); } catch { /* older install */ }
+  for (const file of new Set(launchers)) {
+    try {
+      if (/gossip launcher|GOSSIP_ROOT/.test(fs.readFileSync(file, 'utf8'))) rm(file);
+    } catch { /* not there */ }
+  }
+  // the line the installer added to your shell's startup file
+  for (const rc of ['.zshrc', '.bashrc', '.bash_profile', '.profile', path.join('.config', 'fish', 'config.fish')]) {
+    const file = path.join(process.env.ZDOTDIR && rc === '.zshrc' ? process.env.ZDOTDIR : os.homedir(), rc);
+    try {
+      const text = fs.readFileSync(file, 'utf8');
+      const cleaned = text.replace(/\n?# Added by the gossip installer\n[^\n]*\n?/g, '\n');
+      if (cleaned !== text) fs.writeFileSync(file, cleaned);
+    } catch { /* no such file */ }
+  }
+  for (const name of ['app.next', 'app.old', 'update.json', 'launcher', 'hub', 'bin', 'node', 'app']) rm(path.join(where.root, name));
+  if (everything) {
+    rm(home);
+    rm(where.root);
+  }
+  console.log('');
+  say('ok', everything ? 'gossip and everything it kept on this computer are gone.' : `gossip is removed. Your account and messages are still in ${home} - reinstall any time to pick them back up.`);
+  if (failed.length) say('warn', `Couldn't delete: ${failed.join(', ')}. Close any open gossip windows and delete ${failed.length > 1 ? 'those' : 'it'} by hand.`);
+  if (everything) say('sys', 'Your username still exists on the website or relay you used; only this computer forgot it.');
+  return undefined;
+}
+
 /** gossip update: check for a newer version and fetch it now. */
 async function update() {
   const U = require('./update');
@@ -392,7 +464,7 @@ function readStdin() {
 }
 
 // commands that make sense before you have an account
-const NO_ACCOUNT = new Set(['help', 'config', 'theme', 'mascot', 'dance', 'relay', 'shitty']);
+const NO_ACCOUNT = new Set(['help', 'config', 'theme', 'mascot', 'dance', 'relay', 'shitty', 'changelog']);
 
 /** Start the quiet background check for a new version (at most every few hours). */
 const checkForUpdates = () => require('./update').kick(prefs.val('update'));
@@ -460,6 +532,7 @@ async function main(argv) {
     return 'stay'; // the relay keeps the process alive
   }
   if (word === 'update') return update();
+  if (word === 'uninstall' || word === 'delete') return uninstall(rest);
   if (word === 'nearby') return nearby(rest, view);
   if (word === '__update') return require('./update').check(rest[0] === 'notify' ? 'notify' : 'auto').then(() => {}, () => {});
   if (word === 'check') return check();
@@ -479,7 +552,7 @@ async function main(argv) {
 
   const cmd = find(word);
   if (!cmd || cmd.where === 'shell') {
-    const close = didYouMean(word, ['check', 'listen', 'nearby', 'serve', 'update']);
+    const close = didYouMean(word, ['check', 'listen', 'nearby', 'serve', 'update', 'uninstall']);
     die(`There's no "gossip ${word}".${close ? ` Did you mean: gossip ${close}?` : ''} See them all: gossip help`, 2);
   }
   return oneShot(cmd, rest);

@@ -399,6 +399,11 @@ class App extends EventEmitter {
     return this.pin(res.user);
   }
 
+  /** Muted chats still collect messages; they just don't ring or show a count. */
+  muted(key) {
+    return Array.isArray(this.settings.muted) && this.settings.muted.includes(key);
+  }
+
   contacts() {
     return this.peers.values().filter((p) => p.contact).sort((a, b) => (a.name < b.name ? -1 : 1));
   }
@@ -624,6 +629,9 @@ class App extends EventEmitter {
       chat.members.delete(m.name);
       chat.typing.delete(m.name);
       this.say(`${m.name} was removed from #${m.room} by ${m.by}`, 'event');
+    } else if (m.event === 'owner' && P.validName(m.name) && this.chats.has(key)) {
+      this.chats.get(key).owner = m.name;
+      this.say(m.name === this.me ? `${m.by} handed #${m.room} to you - you own it now.` : `${m.name} now owns #${m.room}`, 'event');
     } else if (m.event === 'kicked') {
       if (this.chats.has(key)) {
         const chat = this.chats.get(key);
@@ -712,7 +720,7 @@ class App extends EventEmitter {
       this.emit('line', { t: 'msg', key, msg });
       const mentioned = mentions(text, this.me);
       const bell = prefs.val('bell');
-      if (bell !== 'off' && (mentioned || (bell === 'all' && chat.kind === 'dm'))) this.emit('bell');
+      if (bell !== 'off' && !this.muted(key) && (mentioned || (bell === 'all' && chat.kind === 'dm'))) this.emit('bell');
     } finally {
       if (ack) this._ack(m.mid);
     }
