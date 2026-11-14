@@ -82,17 +82,17 @@ don't get), so there are two ways to get one:
 
 1. Go to <https://www.expressturn.com/signup> and make an account.
 2. On your ExpressTURN dashboard, find three things and copy them somewhere:
-   the **server address** (usually `relay1.expressturn.com`), your **username**
+   the **server address** (on the free plan it's `free.expressturn.com:3478`), your **username**
    (`turn_username`) and your **password** (`turn_password`).
 3. On PythonAnywhere, open the **Files** tab, go to `gossip-data`, and open (or
    create) `config.json`. Make it look like this, putting in your own username
-   and password (4 places) - and your own server address if it isn't `relay1`:
+   and password (4 places) - and your own server address if yours is different:
 
    ```json
    {
      "turn": [
-       { "urls": "turn:relay1.expressturn.com:3478", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" },
-       { "urls": "turns:relay1.expressturn.com:443?transport=tcp", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" }
+       { "urls": "turn:free.expressturn.com:3478?transport=udp", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" },
+       { "urls": "turn:free.expressturn.com:3478?transport=tcp", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" }
      ]
    }
    ```
@@ -120,7 +120,7 @@ update `config.json`.
 
 If you'd rather not even touch the website, each person can add it to just
 their own gossip instead:
-`gossip config call.turn "turn:relay1.expressturn.com:3478 YOUR_USERNAME YOUR_PASSWORD"`.
+`gossip config call.turn "turn:free.expressturn.com:3478 YOUR_USERNAME YOUR_PASSWORD"`.
 
 #### Option B: run gossip's own relay
 
