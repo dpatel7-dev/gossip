@@ -68,11 +68,13 @@ function history(app) {
   const per = [];
   let sent = 0;
   let received = 0;
+  let files = 0;
   for (const key of app.vault.conversations()) {
     let n = 0;
     for (const r of app.vault.loadHistory(key, 20000)) {
       if (typeof r.text !== 'string') continue;
       n++;
+      if (r.file) files++;
       const mine = r.from === app.me;
       if (mine) sent++; else received++;
       const d = days.find((x) => r.ts >= x.day && r.ts < x.day + 86400000);
@@ -81,7 +83,7 @@ function history(app) {
     if (n) per.push({ key, n });
   }
   per.sort((a, b) => b.n - a.n);
-  return { days, sent, received, top: per.slice(0, 5), chats: per.length };
+  return { days, sent, received, files, top: per.slice(0, 5), chats: per.length };
 }
 
 async function snapshot(app) {

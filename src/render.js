@@ -148,6 +148,24 @@ function clockText(ts) {
 /** "/me waves" is shown as an action:  * maya waves */
 const isAction = (msg) => typeof msg.text === 'string' && /^\/me\s+\S/.test(msg.text);
 
+/** A file in the chat: name, size, how it's going - and for pictures, the picture. */
+function fileText(me, msg) {
+  const F = require('./files');
+  const f = msg.file;
+  const pct = (x) => `${Math.floor((Number(x) || 0) * 100)}%`;
+  let state = '';
+  if (f.state === 'sending') state = Th.dim(`sending ${pct(f.done)}`);
+  else if (f.state === 'receiving') state = Th.dim(`receiving ${pct(f.done)}`);
+  else if (f.state === 'failed') state = Th.err('✗ failed');
+  else if (f.state === 'saved') state = Th.ok('saved') + Th.dim(' · /open');
+  else if (msg.from === me) state = Th.dim(msg.status === 'delivered' ? 'delivered' : 'sent');
+  return Th.accent2('📎 ') + A.paint(f.name, { bold: true, underline: true }) + Th.dim('  ' + F.sizeText(f.size)) + (state ? '  ' + state : '');
+}
+
+function fileLines(msg, indent, max) {
+  return require('./files').previewLines(msg.file.preview, Math.max(8, Math.min(40, max - indent))).map((l) => ' '.repeat(indent) + l);
+}
+
 function messageLines(me, key, msg, cols, bare = false) {
   const clock = clockText(msg.ts);
   const timeW = clock ? (prefs.val('time') === '24h' ? 5 : 8) + 2 : 1;
@@ -163,6 +181,10 @@ function messageLines(me, key, msg, cols, bare = false) {
   const indent = max >= 50 ? timeW : 2;
   const headW = timeW + A.vwidth(head) + 1;
   const out = [];
+  if (msg.file) {
+    out.push(time + head + ' ' + A.clip(fileText(me, msg), Math.max(8, max - headW)));
+    return out.concat(fileLines(msg, indent, max));
+  }
   if (max - headW < 16) {
     // very narrow window or very long names: text starts on its own line
     out.push(time + head);
@@ -185,6 +207,7 @@ function cozyLines(me, key, msg, cols, withHeader, bare = false) {
     const clock = clockText(msg.ts);
     out.push('', ' ' + who(me, key, msg, bare) + (clock ? Th.dim('  ·  ' + clock) : ''));
   }
+  if (msg.file) return out.concat('   ' + A.clip(fileText(me, msg), max - 3), fileLines(msg, 3, max));
   for (const l of A.wrap(msg.text, max - 3)) out.push('   ' + decorate(me, l));
   if (msg.from === me && msg.status === 'failed') out[out.length - 1] += '  ' + Th.err('✗ not sent');
   return out;

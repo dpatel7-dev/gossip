@@ -83,6 +83,7 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
   const relay = await new Relay({ port: 0, dataDir: tmp(), quiet: true }).start();
   const ann = await person(relay, 'ann');
   const ben = await person(relay, 'ben');
+  const streams = [];
   try {
     await runCommand(ann.ctx, 'add ben');
     await runCommand(ben.ctx, 'add ann');
@@ -94,6 +95,7 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
 
     // ann's "browser" hands over its details; gossip passes them to ben
     const annEvents = events(ann.web.url(`callevents/${out.id}`));
+    streams.push(annEvents);
     const page = await request(ann.web.url(`call/${out.id}`));
     assert.equal(page.status, 200);
     assert.match(page.text, /call with/);
@@ -103,6 +105,7 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     const inc = ben.calls.current;
     assert.equal(inc.state, 'connecting');
     const benEvents = events(ben.web.url(`callevents/${inc.id}`));
+    streams.push(benEvents);
     await until(() => benEvents.some((e) => e.t === 'offer' && e.sdp === 'v=0 offer-from-ann'), "ben's browser to get ann's details");
     await request(ben.web.url(`callapi/${inc.id}`), { method: 'POST', body: { t: 'answer', sdp: 'v=0 answer-from-ben' } });
     await until(() => annEvents.some((e) => e.t === 'answer' && e.sdp === 'v=0 answer-from-ben'), "ann's browser to get ben's answer");
@@ -120,14 +123,13 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     assert.equal(snap.sessions[0].you, true);
     assert.ok(snap.outbound.some((o) => o.what === 'Call with ben' && o.where === '198.51.100.7:5000'));
     assert.ok(snap.chats.some((c) => c.key === '@ben' && c.readers.map((r) => r.name).join() === 'ann,ben'));
-    assert.ok(snap.activity.some((a) => /Call to ben: live/.test(a.text)));
+    assert.ok(snap.activity.some((a) => /On a call with ben/.test(a.text)));
 
     await runCommand(ann.ctx, 'hangup');
     await until(() => inc.state === 'ended', 'ben to hear the hang-up');
-    assert.ok(benEvents.some((e) => e.t === 'end'), "ben's browser is told");
-    annEvents.close();
-    benEvents.close();
+    await until(() => benEvents.some((e) => e.t === 'end'), "ben's browser to be told");
   } finally {
+    for (const e of streams) e.close();
     for (const a of [ann, ben]) { a.web && a.web.close(); await a.closeGracefully(); }
     await relay.stop();
   }

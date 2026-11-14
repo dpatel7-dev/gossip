@@ -195,7 +195,7 @@ class Vault {
       records++;
       if (r.u) {
         const m = byId.get(r.u);
-        if (m) m.st = r.st;
+        if (m) for (const [k, v] of Object.entries(r)) if (k !== 'u') m[k] = v; // a later update to that message
       } else if (r.id && !byId.has(r.id)) {
         byId.set(r.id, r);
         order.push(r);

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gossip · dashboard</title>
+<!--__ICON__-->
 <style>
 /*__THEME__*/
 * { box-sizing: border-box; }
@@ -61,6 +62,7 @@ ul.plain li { padding: .12em 0; }
 .chat { padding: .45em 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
 .chat:first-child { border-top: 0; padding-top: 0; }
 .who { display: flex; flex-wrap: wrap; gap: .2em 2.5ch; margin-top: .15em; }
+.note { margin: .9em 0 0; font-size: .92em; }
 .log li { display: grid; grid-template-columns: 9ch 1fr; gap: 1ch; }
 footer { margin-top: 2em; color: var(--dim); }
 @media (max-width: 1000px) { .w4, .w5, .w6, .w7, .w8 { grid-column: span 12; } }
@@ -84,7 +86,7 @@ footer { margin-top: 2em; color: var(--dim); }
 
   <section class="box w12"><h2>Every connection gossip makes</h2><div id="outbound"></div><div id="listening"></div></section>
 
-  <section class="box w7"><h2>Who can read what</h2><span class="aside">the relay sees who and when - never what</span><div id="chats"></div></section>
+  <section class="box w7"><h2>Who can read what</h2><div id="chats"></div><p class="dim note">Whatever passes messages along sees who talks to whom, and when. Never what.</p></section>
   <section class="box w5"><h2>Your gossip</h2><div id="stats"></div></section>
 
   <section class="box w7"><h2>Activity</h2><ul class="plain log" id="log"></ul></section>
@@ -122,40 +124,55 @@ footer { margin-top: 2em; color: var(--dim); }
     setTimeout(pebble, f === 0 ? wait + 2200 : wait);
   })();
 
+
+  // the tab's icon: Pebble, with a dot showing how things are
+  var iconColour = null;
+  function tabIcon(scene, colour) {
+    if (colour === iconColour) return;
+    iconColour = colour;
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = 32;
+    var c = cv.getContext('2d'), g = P.grids[P.scenes[scene][0][0]];
+    for (var i = 0; i < 256; i++) { var ink = P.ink[g[i]]; if (ink) { c.fillStyle = ink; c.fillRect((i % 16) * 2, (i >> 4) * 2, 2, 2); } }
+    if (colour) {
+      c.beginPath(); c.arc(25, 25, 6.5, 0, 7); c.fillStyle = '#10141c'; c.fill();
+      c.beginPath(); c.arc(25, 25, 4.8, 0, 7); c.fillStyle = colour; c.fill();
+    }
+    try { document.getElementById('icon').href = cv.toDataURL(); } catch (e) {}
+  }
+
   var S = null, tick = 0;
 
   function drawMap() {
     if (!S) return;
     var c = S.connection, online = c.state === 'online';
     var you = ' you: ' + S.me + ' ', mid = ' ' + (c.host || 'not set') + ' ', sub = ' ' + c.kind + ' ';
-    var w1 = Math.max(you.length, 12), w2 = Math.max(mid.length, sub.length, 16);
-    var line = function (s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); };
+    var w1 = Math.max(you.length, S.host.length + 2, 12), w2 = Math.max(mid.length, sub.length, 16);
+    var pad = function (s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); };
     var how = c.transport && c.transport.tls ? c.transport.tls.protocol || 'TLS' : /localhost|127\./.test(c.url) ? 'local' : c.kind === 'nearby host' ? 'LAN' : online ? 'NO TLS' : '';
     var lat = c.ping != null ? c.ping + ' ms' : '';
-    var len = 16, pos = tick % (len + 6), pipe = '';
-    for (var i = 0; i < len; i++) pipe += online && i === pos ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
-    var pipe2 = '';
-    for (i = 0; i < 8; i++) pipe2 += online && i === (tick + 5) % 12 ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
-    var people = [];
-    S.chats.filter(function (x) { return x.kind === 'dm'; }).forEach(function (x) { var p = x.readers[1]; people.push(dot(p.online) + ' ' + esc(p.name) + (p.changed ? ' <span class="warn">!</span>' : '')); });
-    var rooms = S.chats.filter(function (x) { return x.kind === 'room'; }).map(function (x) { return '<span class="srv">' + esc(x.key) + '</span> <span class="dim">' + x.readers.length + '</span>'; });
-    var right = people.concat(rooms);
-    var tlsCls = how === 'NO TLS' ? 'err' : 'dim';
+    var len = 14, pipe = '', pipe2 = '';
+    for (var i = 0; i < len; i++) pipe += online && i === tick % (len + 6) ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
+    for (i = 0; i < 6; i++) pipe2 += online && i === (tick + 7) % 12 ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
+    var right = [];
+    S.chats.forEach(function (x) {
+      if (x.kind === 'dm') { var p = x.readers[1]; right.push(dot(p.online) + ' ' + esc(p.name) + (p.changed ? ' <span class="warn">key changed</span>' : '')); }
+      else right.push('<span class="srv">' + esc(x.key) + '</span> <span class="dim">' + x.readers.length + (x.readers.length === 1 ? ' person' : ' people') + '</span>');
+    });
+    if (right.length > 5) right = right.slice(0, 4).concat('<span class="dim">+ ' + (right.length - 4) + ' more</span>');
+    if (!right.length) right = ['<span class="dim">nobody yet</span>'];
+    var tc = how === 'NO TLS' ? 'err' : 'dim';
     var rows = [
-      '╭' + '─'.repeat(w1) + '╮' + ' '.repeat(len + 2) + '╭' + '─'.repeat(w2) + '╮',
-      '│<b class="acc">' + esc(line(you, w1)) + '</b>│ <span class="' + tlsCls + '">' + esc(line(' ' + how, len)) + '</span> │' + esc(line(mid, w2)) + '│',
-      '│' + esc(line(' ' + S.host, w1)) + '│' + pipe + '▶ │<span class="dim">' + esc(line(sub, w2)) + '</span>│' + pipe2 + '▶',
-      '│' + ' '.repeat(w1) + '│ <span class="dim">' + esc(line(' ' + lat, len)) + '</span> │' + ' '.repeat(w2) + '│',
-      '╰' + '─'.repeat(w1) + '╯' + ' '.repeat(len + 2) + '╰' + '─'.repeat(w2) + '╯'
+      '╭' + '─'.repeat(w1) + '╮' + ' '.repeat(len + 3) + '╭' + '─'.repeat(w2) + '╮',
+      '│<b class="acc">' + esc(pad(you, w1)) + '</b>│ <span class="' + tc + '">' + esc(pad(how, len)) + '</span>  │' + esc(pad(mid, w2)) + '│',
+      '│' + esc(pad(' ' + S.host, w1)) + '│' + pipe + '━▶ │<span class="dim">' + esc(pad(sub, w2)) + '</span>│' + pipe2 + '▶',
+      '│' + ' '.repeat(w1) + '│ <span class="dim">' + esc(pad(lat, len)) + '</span>  │' + ' '.repeat(w2) + '│',
+      '╰' + '─'.repeat(w1) + '╯' + ' '.repeat(len + 3) + '╰' + '─'.repeat(w2) + '╯'
     ];
-    var col = 4;
-    for (var r = 0; r < Math.max(rows.length, Math.ceil(right.length / 1)); r++) {
-      var item = right[r] || '';
-      if (r < rows.length) rows[r] += item ? ' '.repeat(col) + item : '';
-      else rows.push(' '.repeat(w1 + len + w2 + 8 + (r === rows.length ? 0 : 0) + col + 8) + item);
-    }
+    var start = Math.max(0, 2 - Math.floor((right.length - 1) / 2));
+    for (i = 0; i < right.length; i++) rows[start + i] += (start + i === 2 ? '  ' : '         ') + right[i];
     $('map').innerHTML = rows.join('\n');
-    $('mapAside').textContent = right.length ? 'people and servers you talk to' : '';
+    $('mapAside').textContent = 'live';
   }
 
   function render() {
@@ -163,6 +180,10 @@ footer { margin-top: 2em; color: var(--dim); }
     $('who').innerHTML = esc(S.me) + ' <span class="dim">on</span> ' + esc(S.host) + ' <span class="dim">· v' + esc(S.version) + '</span>';
     var st = { online: ['ok', 'online'], connecting: ['warn', 'connecting'], offline: ['err', 'offline'], idle: ['dim', 'not connected'] }[c.state] || ['dim', c.state];
     $('status').innerHTML = '<span class="' + st[0] + '">●</span> ' + st[1];
+    var warnings = S.checks.filter(function (x) { return x.ok === false; }).length;
+    var css = getComputedStyle(document.documentElement);
+    tabIcon('dance', css.getPropertyValue('--' + (st[0] === 'ok' ? (warnings ? 'warn' : 'ok') : st[0] === 'dim' ? 'dim' : st[0])).trim());
+    document.title = (warnings ? '(' + warnings + ') ' : '') + 'gossip · dashboard';
 
     var kv = [
       ['status', '<span class="' + st[0] + '">' + st[1] + '</span>' + (c.detail ? ' <span class="dim">' + esc(c.detail) + '</span>' : '')],
@@ -177,7 +198,7 @@ footer { margin-top: 2em; color: var(--dim); }
       ['server', c.server ? esc(c.server.name || '') + (c.server.version ? ' <span class="dim">v' + esc(c.server.version) + '</span>' : '') : '-'],
       ['your key', '<span class="dim">' + esc(S.fingerprint || '') + '</span>']
     ];
-    $('conn').innerHTML = kv.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('');
+    $('conn').innerHTML = kv.filter(function (r) { return !/^(-|<span class="dim">-<\/span>)$/.test(r[1]); }).map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('');
 
     // sessions
     var h = '';
@@ -230,14 +251,15 @@ footer { margin-top: 2em; color: var(--dim); }
     hst.days.forEach(function (d) { max = Math.max(max, d.sent + d.received); });
     var spark = hst.days.map(function (d) { var n = d.sent + d.received; return n ? blocks[Math.max(1, Math.round(n / max * 8))] : '·'; }).join('');
     var dname = function (ts) { return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
-    $('stats').innerHTML = '<div class="spark acc">' + spark + '</div><div class="axis"><span>' + dname(hst.days[0].day) + '</span><span>today</span></div>' +
+    if (!hst.sent && !hst.received) { $('stats').innerHTML = '<p class="dim">No messages saved on this computer yet. Say hi to someone!</p>'; } else $('stats').innerHTML = '<div class="spark acc">' + spark + '</div><div class="axis"><span>' + dname(hst.days[0].day) + '</span><span>today</span></div>' +
       '<dl class="kv" style="margin-top:1em"><dt>sent</dt><dd>' + hst.sent + '</dd><dt>received</dt><dd>' + hst.received + '</dd><dt>chats</dt><dd>' + hst.chats + '</dd>' +
-      (hst.top.length ? '<dt>busiest</dt><dd>' + hst.top.map(function (x) { return esc(x.key) + ' <span class="dim">' + x.n + '</span>'; }).join(', ') + '</dd>' : '') + '</dl>';
+      '<dt>files</dt><dd>' + hst.files + '</dd>' + (hst.top.length ? '<dt>busiest</dt><dd>' + hst.top.map(function (x) { return esc(x.key) + ' <span class="dim">' + x.n + '</span>'; }).join(', ') + '</dd>' : '') + '</dl>';
 
     // activity
     var kinds = { warn: 'warn', err: 'err', ok: 'ok', event: 'acc', net: 'dim', call: 'acc2' };
     $('log').innerHTML = S.activity.length ? S.activity.slice(0, 25).map(function (a) {
-      return '<li><span class="dim">' + time(a.ts) + '</span><span class="' + (kinds[a.kind] || '') + '">' + esc(a.text) + '</span></li>';
+      var short = a.text.replace(/\s*\(?(or open )?https?:\/\/\S+\)?/g, '').replace(/^(.+?[.!?…])\s.*$/, '$1');
+      return '<li title="' + esc(a.text) + '"><span class="dim">' + time(a.ts) + '</span><span class="' + (kinds[a.kind] || '') + '">' + esc(short) + '</span></li>';
     }).join('') : '<li class="dim">Nothing yet.</li>';
 
     // calls
@@ -246,7 +268,7 @@ footer { margin-top: 2em; color: var(--dim); }
       var st = x.state === 'live' ? '<span class="ok">● live ' + Math.floor(len / 60) + ':' + String(len % 60).padStart(2, '0') + '</span>' : '<span class="dim">' + esc(x.state === 'ended' ? (x.reason || 'ended') : x.state) + '</span>';
       return '<li>' + (x.dir === 'out' ? '↗' : '↙') + ' ' + esc(x.peer) + (x.video ? ' <span class="dim">video</span>' : '') + '  ' + st +
         (x.route && x.route.remote ? '<br><span class="dim">   ' + esc(x.route.kind) + ' · ' + esc(x.route.remote) + (x.route.rtt != null ? ' · ' + x.route.rtt + ' ms' : '') + '</span>' : '') +
-        ' <span class="dim">' + ago(x.made) + '</span></li>';
+        ' <span class="dim">· ' + ago(x.made) + '</span></li>';
     }).join('') + '</ul>' : '<p class="dim">No calls yet. In gossip, open a chat and type <b>/call</b>.</p>';
 
     drawMap();

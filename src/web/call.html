@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gossip · call</title>
+<!--__ICON__-->
 <style>
 /*__THEME__*/
 * { box-sizing: border-box; }
@@ -110,6 +111,23 @@ button { font: inherit; color: inherit; }
     setTimeout(pebble, frames[pebbleFrame][1] * 1.3);
   })();
 
+
+  // the tab's icon: Pebble, with a dot showing how things are
+  var iconColour = null;
+  function tabIcon(scene, colour) {
+    if (colour === iconColour) return;
+    iconColour = colour;
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = 32;
+    var c = cv.getContext('2d'), g = P.grids[P.scenes[scene][0][0]];
+    for (var i = 0; i < 256; i++) { var ink = P.ink[g[i]]; if (ink) { c.fillStyle = ink; c.fillRect((i % 16) * 2, (i >> 4) * 2, 2, 2); } }
+    if (colour) {
+      c.beginPath(); c.arc(25, 25, 6.5, 0, 7); c.fillStyle = '#10141c'; c.fill();
+      c.beginPath(); c.arc(25, 25, 4.8, 0, 7); c.fillStyle = colour; c.fill();
+    }
+    try { document.getElementById('icon').href = cv.toDataURL(); } catch (e) {}
+  }
+
   // ── talking to gossip (in your terminal) ───────────────────────
   function post(m) {
     return fetch(C.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(m) }).catch(function () {});
@@ -123,7 +141,13 @@ button { font: inherit; color: inherit; }
     $('headline').className = 'big ' + (cls || '');
     $('subline').textContent = sub || '';
   }
-  function state(text, cls) { $('state').innerHTML = '<span class="' + (cls || '') + '">●</span> ' + text; }
+  function state(text, cls) {
+    $('state').innerHTML = '<span class="' + (cls || '') + '">●</span> ' + text;
+    var css = getComputedStyle(document.documentElement);
+    var colour = { ok: 'ok', warn: 'warn', err: 'err' }[cls];
+    tabIcon('phone', colour ? css.getPropertyValue('--' + colour).trim() : '#8a94a8');
+    document.title = (cls === 'ok' ? '● ' : '') + 'gossip · call with ' + C.peer;
+  }
 
   function finish(reason, fromHere) {
     if (ended) return;

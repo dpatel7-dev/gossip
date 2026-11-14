@@ -2,6 +2,14 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.7.0
+- Send files and photos, up to 10 MB, end-to-end encrypted: drag a file into the gossip window and press Enter, or `/file ~/Desktop/photo.png`.
+- Photos show up as real pictures right inside the terminal, for you and for them.
+- `/files` lists everything sent in a chat, and `/open` opens the newest one (or `/open 2`). Received files go to Downloads/gossip (change it with `gossip config files ~/somewhere`).
+- Big files and files sent while you're away arrive in full the next time you open gossip. Every file is checked before it's saved, and gossip warns you about files that can run programs.
+- The dashboard and call pages have Pebble as their tab icon, with a dot that shows if everything's fine.
+- A tidier dashboard: a clearer map, shorter activity lines, and no empty rows.
+
 ## 0.6.0
 - Calls: `/call maya` for voice, `/video maya` for video, also in the menu under "This chat". The call opens in your browser in gossip's own look, with mute, camera and screen sharing. Sound and video go straight between your computers, end-to-end encrypted.
 - Answer with Enter (or `/answer`), turn it down with Esc (or `/decline`), end it with `/hangup`. Only people in your contacts can call you (`gossip config calls everyone` or `off` to change that).

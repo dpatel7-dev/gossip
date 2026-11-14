@@ -491,6 +491,7 @@ class HttpLink extends EventEmitter {
       const res = await this._call('poll', {}, 15000);
       if (gen !== this._gen) return;
       this._deliver(res.events);
+      if (res.more) this._busyUntil = Date.now() + 15000, this._more = true;
     } catch {
       return; // _call already dealt with a lost connection
     } finally {
@@ -498,7 +499,9 @@ class HttpLink extends EventEmitter {
     }
     if (gen !== this._gen || !this.online) return;
     const now = Date.now();
-    this._pollSoon(now < this._busyUntil ? POLL_BUSY : now < this._warmUntil ? POLL_WARM : POLL_IDLE);
+    const more = this._more;
+    this._more = false;
+    this._pollSoon(more ? 50 : now < this._busyUntil ? POLL_BUSY : now < this._warmUntil ? POLL_WARM : POLL_IDLE);
   }
 
   async _call(t, payload, timeout) {

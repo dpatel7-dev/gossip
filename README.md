@@ -6,6 +6,7 @@ group servers, contacts — and Pebble, a penguin who dances while you connect.
 ![The gossip chat screen](docs/chat.png)
 
 - **A real chat screen, no commands needed.** Your chats on the left, the conversation on the right. Arrow keys, a menu (Tab) and the mouse do everything.
+- **Files and photos, right in the terminal.** Drag a picture into the window and it shows up as a picture for both of you.
 - **Private by design.** Messages are encrypted on your computer; whatever passes them along can't read them.
 - **Works without internet too.** `gossip nearby` finds people on the same Wi-Fi or cable.
 - **Commands if you like them.** `gossip check`, `gossip squawk maya hi`, `gossip listen` work from any terminal.
@@ -186,6 +187,9 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 ## More things it can do
 
 ```sh
+(drag a file in, press Enter)  # (inside a chat) send a file or photo; photos show up as pictures
+/file ~/Desktop/photo.png   # (inside a chat) the same, typed
+/files   /open             # (inside a chat) list the files in a chat, open the newest
 /call maya                  # (inside a chat) voice call, in your browser; /video maya for video
 /answer  /decline  /hangup  # (inside a chat) or just Enter / Esc while it rings
 /dashboard                  # (inside a chat) every connection, who can read what, activity

@@ -63,7 +63,7 @@ class Calls extends EventEmitter {
       const c = this.list.get(id);
       if (!c) return send(404, 'This call is over.\n');
       return send(200, web.page('call.html', {
-        id: c.id, role: c.dir === 'out' ? 'caller' : 'callee', me: this.app.me, peer: c.peer, video: c.video,
+        id: c.id, role: c.dir === 'out' ? 'caller' : 'callee', me: this.app.me, peer: c.peer, video: c.video, icon: 'phone',
         api: web.url(`callapi/${c.id}`), events: web.url(`callevents/${c.id}`), stun: STUN,
       }), 'text/html; charset=utf-8');
     });
@@ -119,7 +119,6 @@ class Calls extends EventEmitter {
       clearTimeout(c.timer);
       this._tell(c, { t: 'end', reason: c.reason || 'ended' });
     }
-    this.app.log('call', `${c.dir === 'out' ? 'Call to' : 'Call from'} ${c.peer}: ${state}${reason ? ` (${reason})` : ''}`);
     this.emit('change', c);
     this.app.emit('change');
   }

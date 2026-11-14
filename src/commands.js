@@ -119,7 +119,7 @@ function replay(app, key, n) {
     if (typeof r.text !== 'string' || typeof r.from !== 'string') continue;
     const d = new Date(r.ts).toDateString();
     if (d !== day) { day = d; app.emit('line', { t: 'day', ts: r.ts }); }
-    app.emit('line', { t: 'msg', key, msg: { id: r.id, from: r.from, ts: r.ts, text: r.text, status: r.st === 'pending' ? 'failed' : r.st } });
+    app.emit('line', { t: 'msg', key, msg: { id: r.id, from: r.from, ts: r.ts, text: r.text, status: r.st === 'pending' ? 'failed' : r.st, file: r.file || null } });
     shown++;
   }
   return shown;
@@ -229,9 +229,63 @@ const COMMANDS = [
       const stamp = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
       const file = path.resolve(args[1] || `gossip-${key.slice(1)}-${stamp(Date.now()).slice(0, 10)}.txt`);
       const text = [`gossip chat with ${pretty(key)}, saved ${stamp(Date.now())}`, '']
-        .concat(list.map((r) => `[${stamp(r.ts)}] ${r.from}: ${r.text}`)).join('\n') + '\n';
+        .concat(list.map((r) => `[${stamp(r.ts)}] ${r.from}: ${r.file ? `[file] ${r.file.name}${r.file.path ? ` (${r.file.path})` : ''}` : r.text}`)).join('\n') + '\n';
       fs.writeFileSync(file, text);
       return app.say(`Saved ${plural(list.length, 'message')} to ${file}`, 'ok');
+    },
+  },
+  {
+    name: 'file', aliases: ['upload', 'attach', 'sendfile', 'photo'], args: '[who] <file>', need: 1, group: 'Chat', net: true,
+    desc: 'Send a file or photo (up to 10 MB) - or just drag it into the window',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const F = require('./files');
+      const fs = require('fs');
+      const exists = (p) => { try { return fs.statSync(p.replace(/^~(?=$|[\\/])/, require('os').homedir())).isFile(); } catch { return false; } };
+      let key = app.target;
+      let file = F.asPath(args.join(' ')) || args.join(' ');
+      if (args.length > 1 && !exists(file) && exists(args.slice(1).join(' '))) { // gossip file maya ./photo.png
+        key = await resolveTarget(app, args[0]);
+        file = args.slice(1).join(' ');
+      }
+      if (!key) throw new Error(ctx.noTarget || 'Who to? For example: gossip file maya ./photo.png');
+      needOnline(app);
+      const info = await app.sendFile(key, file);
+      if (!ctx.shell) app.say(`Sent ${info.file.name} to ${pretty(key)}.`, 'ok');
+    },
+  },
+  {
+    name: 'open', aliases: ['view'], args: '[number]', group: 'Chat',
+    desc: 'Open a file someone sent you (the newest one, or a number from /files)',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const list = filesIn(app, app.target);
+      if (!list.length) throw new Error(app.target ? `No files in ${pretty(app.target)} yet.` : 'Open a chat first.');
+      const n = args[0] ? parseInt(args[0], 10) : 1;
+      const pick = list[n - 1];
+      if (!pick) throw new Error(`There's no file number ${args[0]} - see ${app.hint('files')}`);
+      const where = pick.file.path;
+      if (!where || !require('fs').existsSync(where)) throw new Error(`${pick.file.name} isn't on this computer${pick.file.state === 'receiving' ? ' yet - it is still arriving' : ' any more'}.`);
+      if (require('./files').RISKY.test(where) && args[1] !== 'anyway') throw new Error(`${pick.file.name} can run programs. If you trust ${pick.from}, open it yourself from ${where} (or ${app.hint(`open ${n} anyway`)}).`);
+      require('./web').openBrowser(where);
+      app.say(`Opening ${pick.file.name}…`, 'sys');
+    },
+  },
+  {
+    name: 'files', aliases: ['attachments', 'downloads'], group: 'Chat',
+    desc: 'List the files in this chat, newest first',
+    async run(ctx) {
+      const { app } = ctx;
+      const list = filesIn(app, app.target);
+      if (!list.length) return app.say(app.target ? `No files in ${pretty(app.target)} yet. Send one by dragging it into the window, or ${app.hint('file <path>')}` : 'Open a chat first.', 'sys');
+      const F = require('./files');
+      const rows = [[[`Files in ${pretty(app.target)}`, 'head']]];
+      list.slice(0, 20).forEach((r, i) => rows.push([
+        [`  ${String(i + 1).padStart(2)}  `, 'accent'], [r.file.name, 'bold'], [`  ${F.sizeText(r.file.size)}  ${r.from === app.me ? 'from you' : 'from ' + r.from}`, 'dim'],
+        [r.file.path && r.file.state === 'saved' ? `  ${r.file.path}` : '', 'dim'],
+      ]));
+      rows.push([[`  Open one: ${app.hint('open 1')}`, 'dim']]);
+      return app.rows(rows);
     },
   },
   {
@@ -977,10 +1031,23 @@ const OUTSIDE = {
   listen: "You're already seeing every message here.",
 };
 
+/** Files in a chat, newest first. */
+function filesIn(app, key) {
+  if (!key) return [];
+  return app.vault.loadHistory(key, 2000).filter((r) => r.file && typeof r.file.name === 'string').reverse();
+}
+
 async function handleInput(ctx, raw) {
   const { app } = ctx;
   const literal = raw[0] === ' '; // a leading space means "send this exactly as typed"
   const text = raw.trim();
+  // A file dragged into the window arrives as its path: send the file.
+  const dropped = !literal && app.target && require('./files').asPath(text);
+  if (dropped) {
+    needOnline(app);
+    await app.sendFile(app.target, dropped);
+    return undefined;
+  }
   // Typed a shell command out of habit ("gossip update")? Run it right here.
   const shellish = !literal && /^gossip\s+([a-z-]+)(?:\s+([\s\S]*))?$/i.exec(text);
   if (shellish) {

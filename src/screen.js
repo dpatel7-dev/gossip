@@ -71,7 +71,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     function load(key) {
       let list = items.get(key);
       if (!list) {
-        list = app.vault.loadHistory(key, 300).map((r) => ({ t: 'msg', key, msg: { id: r.id, from: r.from, ts: r.ts, text: r.text, status: r.st } }));
+        list = app.vault.loadHistory(key, 300).map((r) => ({ t: 'msg', key, msg: { id: r.id, from: r.from, ts: r.ts, text: r.text, status: r.st, file: r.file || null } }));
         items.set(key, list);
       }
       return list;
@@ -647,6 +647,16 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     // ── wiring ──────────────────────────────────────────────────────────────
 
     hook(app, 'line', onLine);
+    hook(app, 'file', ({ key, id, file, status }) => {
+      const list = items.get(key);
+      const item = list && list.find((x) => x.t === 'msg' && x.msg.id === id);
+      if (item) {
+        item.msg.file = file;
+        if (status) item.msg.status = status;
+      }
+      cache = null;
+      schedule();
+    });
     if (app.calls) {
       hook(app.calls, 'ring', (c) => react('phone', () => app.calls.ringing === c));
       hook(app.calls, 'change', schedule);

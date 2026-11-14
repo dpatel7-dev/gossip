@@ -577,7 +577,12 @@ class App extends EventEmitter {
   }
 
   async _seal(job) {
-    const chat = this.chat(job.key);
+    return this._sealFor(job.key, { text: job.msg.text }, job.msg.id, job.msg.ts);
+  }
+
+  /** Encrypt anything for everyone in a chat. */
+  async _sealFor(key, payload, id, ts) {
+    const chat = this.chat(key);
     let recipients;
     let conv;
     if (chat.kind === 'dm') {
@@ -599,10 +604,106 @@ class App extends EventEmitter {
       }
       conv = P.roomConv(chat.name);
     }
-    return e2e.seal({
-      identity: this.identity, from: this.me, conv, recipients,
-      payload: { text: job.msg.text }, id: job.msg.id, ts: job.msg.ts,
-    });
+    return e2e.seal({ identity: this.identity, from: this.me, conv, recipients, payload, id, ts });
+  }
+
+  /**
+   * Send a file: one "here comes a file" message, then the file in pieces.
+   * Resolves when the last piece has left this computer.
+   */
+  async sendFile(key, file) {
+    const F = require('./files');
+    const info = F.prepare(file);
+    if (!this.link || !this.link.online) throw fail('offline', "You're offline - files can only be sent while connected");
+    const chat = this.chat(key);
+    if (chat.kind === 'room' && chat.joined === false) throw fail('not_member', `you're not in #${chat.name}`);
+    const meta = { name: info.name, size: info.size, sha: info.sha, chunks: info.chunks, preview: info.preview };
+    const msg = { id: e2e.randomId(), from: this.me, ts: Date.now(), text: '', file: { ...meta, path: info.path, state: 'sending', done: 0 }, status: 'pending' };
+    this.vault.appendHistory(key, { id: msg.id, from: msg.from, ts: msg.ts, text: '', file: msg.file, st: 'pending' });
+    if (chat.ids) chat.ids.add(msg.id);
+    this.emit('line', { t: 'msg', key, msg });
+    const send = async (env) => {
+      for (let tries = 0; ; tries++) {
+        try {
+          return await this.link.request('send', { env }, 60000);
+        } catch (e) {
+          if (e.code === 'slow_down' && tries < 60) { await new Promise((r) => setTimeout(r, 1000)); continue; }
+          throw e;
+        }
+      }
+    };
+    const update = (fields, st) => {
+      Object.assign(msg.file, fields);
+      if (st) msg.status = st;
+      this.vault.appendHistory(key, { u: msg.id, file: msg.file, ...(st ? { st } : {}) });
+      this.emit('file', { key, id: msg.id, file: msg.file, status: msg.status });
+      this.emit('change');
+    };
+    try {
+      await send(await this._sealFor(key, { file: meta }, msg.id, msg.ts));
+      for (let i = 0; i < info.chunks; i++) {
+        const piece = info.data.subarray(i * F.CHUNK, (i + 1) * F.CHUNK);
+        await send(await this._sealFor(key, { chunk: { of: msg.id, i, d: piece.toString('base64') } }, e2e.randomId(), Date.now()));
+        msg.file.done = (i + 1) / info.chunks;
+        this.emit('file', { key, id: msg.id, file: msg.file, status: msg.status });
+        this.emit('change');
+      }
+      this.counts.sent++;
+      update({ state: 'sent', done: 1 }, msg.status === 'delivered' ? 'delivered' : 'sent');
+      return msg;
+    } catch (e) {
+      update({ state: 'failed' }, 'failed');
+      throw e;
+    }
+  }
+
+  /** Someone is sending a file: note it, and get ready for the pieces. */
+  _fileStart(key, chat, env, from, ts, meta) {
+    const F = require('./files');
+    if (!F.validMeta(meta)) return;
+    const file = { name: F.safeName(meta.name), size: meta.size, sha: meta.sha, chunks: meta.chunks, preview: meta.preview || null, state: 'receiving', done: 0 };
+    F.Incoming.start(this.vault.file('incoming'), from, env.id, file, key);
+    const msg = { id: env.id, from, ts, text: '', file };
+    this.vault.appendHistory(key, { id: msg.id, from, ts, text: '', file });
+    chat.ids.add(env.id);
+    this._incomingMsgs = this._incomingMsgs || new Map();
+    this._incomingMsgs.set(`${from}/${env.id}`, msg);
+    this.emit('line', { t: 'msg', key, msg });
+    const bell = prefs.val('bell');
+    if (bell !== 'off' && !this.muted(key) && bell === 'all' && chat.kind === 'dm') this.emit('bell');
+  }
+
+  /** A piece of a file arrived. */
+  _fileChunk(from, c) {
+    const F = require('./files');
+    if (!c || typeof c.of !== 'string' || !/^[A-Za-z0-9_-]{8,32}$/.test(c.of) || typeof c.d !== 'string') return;
+    const inc = new F.Incoming(this.vault.file('incoming'), from, c.of);
+    if (!inc.load()) return; // we never heard about this file
+    const { key, meta } = inc.state;
+    const msg = (this._incomingMsgs && this._incomingMsgs.get(`${from}/${c.of}`)) || { id: c.of, from, file: meta };
+    const publish = () => {
+      this.emit('file', { key, id: c.of, file: msg.file });
+      this.emit('change');
+    };
+    try {
+      if (!inc.add(c.i, Buffer.from(c.d, 'base64'))) {
+        msg.file.done = inc.progress;
+        publish();
+        return;
+      }
+      const where = inc.finish(F.saveDir(this.vault.dir, prefs.val('files')));
+      msg.file = { ...msg.file, state: 'saved', done: 1, path: where };
+      this.vault.appendHistory(key, { u: c.of, file: msg.file });
+      this.counts.received++;
+      publish();
+      const risky = F.RISKY.test(where) ? ` Careful: this kind of file can run programs - only open it if you trust ${from}.` : '';
+      this.say(`${from} sent ${msg.file.name} (${F.sizeText(meta.size)}). Saved to ${where}  Open it: ${this.hint('open')}${risky}`, risky ? 'warn' : 'ok');
+    } catch (e) {
+      msg.file = { ...msg.file, state: 'failed' };
+      this.vault.appendHistory(key, { u: c.of, file: msg.file });
+      publish();
+      this.say(`${msg.file.name} from ${from}: ${e.message}.`, 'err');
+    }
   }
 
   /** Send everything waiting in the outbox, in order. Safe to call any time. */
@@ -677,6 +778,7 @@ class App extends EventEmitter {
         break;
       case 'receipt': {
         if (!P.validName(m.by) || typeof m.id !== 'string') return;
+        if (!this._has(this.chat('@' + m.by), m.id)) return; // (the pieces of a file get receipts too)
         this.vault.appendHistory('@' + m.by, { u: m.id, st: 'delivered' });
         if (prefs.on('receipts')) this.flash(`delivered to ${m.by}`);
         break;
@@ -852,6 +954,15 @@ class App extends EventEmitter {
       // call details (ring, answer, hang up): handled by the call code, never shown or saved
       if (payload && payload.call && typeof payload.call === 'object' && chat.kind === 'dm') {
         this.emit('signal', { from, data: payload.call, ts: env.ts });
+        return;
+      }
+      if (payload && payload.file && typeof payload.file === 'object') {
+        const ts = Number.isSafeInteger(m.ts) ? m.ts : env.ts;
+        this._fileStart(key, chat, env, from, ts, payload.file);
+        return;
+      }
+      if (payload && payload.chunk && typeof payload.chunk === 'object') {
+        this._fileChunk(from, payload.chunk);
         return;
       }
       const text = cleanText(payload && payload.text);

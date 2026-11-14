@@ -41,6 +41,7 @@ RESERVED = {
     'here', 'root', 'support', 'home', 'help', 'null', 'undefined',
 }
 LIMIT_BODY = 512 * 1024      # bytes per request
+REPLY_BYTES = 1200 * 1024    # most bytes of messages handed over in one reply
 LIMIT_MEMBERS = 256
 LIMIT_QUEUE = 500            # undelivered messages kept per person
 LIMIT_QUEUE_DAYS = 30
@@ -543,11 +544,25 @@ class Hub:
             for n in self.q('SELECT * FROM notices WHERE name=? ORDER BY id', name).fetchall():
                 notices.append(json.loads(n['body']))
             self.q('DELETE FROM notices WHERE name=?', name)
+            # Hand over what's waiting, but not more than about a megabyte in one reply (files
+            # can be big): the rest is queued for the app's next "anything new?".
+            size = 0
+            later = False
             for item in waiting:
                 ev = self._msg_event(name, item['body'], item['wrap'])
-                if ev:
+                if not ev:
+                    continue
+                n = len(json.dumps(ev, separators=(',', ':')))
+                if later or size + n > REPLY_BYTES:
+                    later = True
+                    self._push(token, ev)
+                else:
+                    size += n
                     events.append(ev)
-            events.append({'t': 'caught_up', 'n': len(waiting)})
+            if later:
+                self._push(token, {'t': 'caught_up', 'n': len(waiting)})
+            else:
+                events.append({'t': 'caught_up', 'n': len(waiting)})
         return {'name': name, 'created': created, 'rooms': rooms, 'invites': invites,
                 'blocked': self._blocked_list(name), 'waiting': len(waiting), 'notices': notices,
                 'token': token, 'events': events, 'others': others}
@@ -566,9 +581,15 @@ class Hub:
 
     def h_poll(self, s, m, now):
         rows = self.q('SELECT id, body FROM events WHERE token=? ORDER BY id LIMIT 500', s['token']).fetchall()
-        if rows:
-            self.q('DELETE FROM events WHERE token=? AND id<=?', s['token'], rows[-1]['id'])
-        return {'events': [json.loads(r['body']) for r in rows]}
+        take, size = [], 0
+        for r in rows:  # (at most about a megabyte per reply)
+            if take and size + len(r['body']) > REPLY_BYTES:
+                break
+            take.append(r)
+            size += len(r['body'])
+        if take:
+            self.q('DELETE FROM events WHERE token=? AND id<=?', s['token'], take[-1]['id'])
+        return {'events': [json.loads(r['body']) for r in take], 'more': len(take) < len(rows)}
 
     def h_lookup(self, s, m, now):
         u = self._user(m.get('name'))

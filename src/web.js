@@ -122,6 +122,7 @@ class Web {
   page(name, config) {
     const html = fs.readFileSync(path.join(PAGES, name), 'utf8');
     return html
+      .replace('<!--__ICON__-->', () => `<link rel="icon" id="icon" href="${pebbleIcon(config.icon || 'dance')}">`)
       .replace('/*__THEME__*/', () => themeCss())
       .replace('__CONFIG__', () => JSON.stringify({ ...config, pixels: M.pixels() }).replace(/</g, '\\u003c'));
   }
@@ -143,6 +144,20 @@ function themeCss() {
   return ':root{' + Object.entries(v).map(([k, x]) => `--${k}:${x}`).join(';') + ';--names:' + (t.names || []).join(' ') + '}';
 }
 
+/** Pebble as a 16x16 SVG picture, for a browser tab's icon. */
+function pebbleIcon(scene) {
+  const P = M.pixels();
+  const frames = P.scenes[scene] || P.scenes.dance;
+  const grid = P.grids[frames[0][0]];
+  let rects = '';
+  for (let i = 0; i < 256; i++) {
+    const ink = P.ink[grid[i]];
+    if (ink) rects += `<rect x="${i % 16}" y="${i >> 4}" width="1.04" height="1.04" fill="${ink}"/>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">${rects}</svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
 /** Open an address in the person's web browser. Returns false if we couldn't. */
 function openBrowser(url) {
   if (process.env.GOSSIP_NO_BROWSER === '1') return false;
@@ -160,4 +175,4 @@ function openBrowser(url) {
   }
 }
 
-module.exports = { Web, openBrowser, themeCss };
+module.exports = { Web, openBrowser, themeCss, pebbleIcon };
