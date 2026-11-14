@@ -1,0 +1,203 @@
+'use strict';
+// The dashboard: a page in your browser showing everything gossip is connected
+// to, who can read what, and anything that looks wrong. `/dashboard` opens it.
+
+const fs = require('fs');
+const os = require('os');
+const e2e = require('./e2e');
+const prefs = require('./prefs');
+const U = require('./update');
+const pkg = require('../package.json');
+const { Web, openBrowser } = require('./web');
+const { STUN } = require('./call');
+
+const cache = new Map(); // key -> { at, value }
+async function cached(key, ms, fn) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < ms) return hit.value;
+  const value = await fn();
+  cache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+const isLocal = (url) => /^(ws|http)s?:\/\/(localhost|127\.|\[::1\])/i.test(url || '');
+
+/** The same checks as `gossip security`, as data. */
+function checks(app) {
+  const url = app.serverUrl || '';
+  const encrypted = /^(wss|https):/i.test(url) || isLocal(url) || !!app.via;
+  const changed = app.peers.values().filter((p) => p.name !== app.me && p.changed);
+  const unverified = app.contacts().filter((p) => !p.verified && !p.changed);
+  const out = [{ ok: true, text: 'Messages are end-to-end encrypted: only the people in a chat can read them.' }];
+  if (!url) out.push({ ok: false, text: 'Not connected to anything yet.' });
+  else if (app.via) out.push({ ok: true, text: 'Nearby mode: messages stay on your local network.' });
+  else if (isLocal(url)) out.push({ ok: true, text: 'The relay is on this computer, so nothing travels over a network.' });
+  else if (encrypted) out.push({ ok: true, text: `The connection to ${hostOf(url)} is encrypted too.` });
+  else out.push({ ok: false, text: `The connection to ${hostOf(url)} is not encrypted. Nobody can read messages, but someone on your network could see who you talk to. Fix: /config security strict and use an https:// or wss:// address.` });
+  out.push(changed.length
+    ? { ok: false, text: `Security key changed for ${changed.map((p) => p.name).join(', ')}. Messages to them are on hold until you check: /verify ${changed[0].name}` }
+    : { ok: true, text: "Nobody's security key has changed unexpectedly." });
+  out.push(app.otherSessions
+    ? { ok: false, text: `Your account is open in ${app.otherSessions + 1} places. If one isn't you: /signout` }
+    : { ok: true, text: 'Your account is only open here.' });
+  if (prefs.val('security') === 'strict') out.push({ ok: true, text: 'Strict mode: unencrypted connections are refused.' });
+  if (unverified.length) out.push({ ok: null, text: `${unverified.length} contact${unverified.length === 1 ? '' : 's'} not verified yet (${unverified.slice(0, 4).map((p) => p.name).join(', ')}). Compare safety numbers on a call or in person: /verify ${unverified[0].name}` });
+  return out;
+}
+
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return url; }
+}
+
+function personOf(app, name) {
+  const p = app.peers.get(name);
+  return {
+    name, you: name === app.me,
+    fp: name === app.me ? e2e.fingerprint(app.identity.signPub) : p ? e2e.fingerprint(p.signPub) : null,
+    verified: !!(p && p.verified), changed: !!(p && p.changed), contact: !!(p && p.contact),
+    online: name === app.me ? app.conn.state === 'online' : app.presence.has(name) ? app.presence.get(name) : null,
+  };
+}
+
+/** Message counts per day for the last two weeks, from what's saved on this computer. */
+function history(app) {
+  const days = [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  for (let i = 13; i >= 0; i--) days.push({ day: start.getTime() - i * 86400000, sent: 0, received: 0 });
+  const per = [];
+  let sent = 0;
+  let received = 0;
+  for (const key of app.vault.conversations()) {
+    let n = 0;
+    for (const r of app.vault.loadHistory(key, 20000)) {
+      if (typeof r.text !== 'string') continue;
+      n++;
+      const mine = r.from === app.me;
+      if (mine) sent++; else received++;
+      const d = days.find((x) => r.ts >= x.day && r.ts < x.day + 86400000);
+      if (d) { if (mine) d.sent++; else d.received++; }
+    }
+    if (n) per.push({ key, n });
+  }
+  per.sort((a, b) => b.n - a.n);
+  return { days, sent, received, top: per.slice(0, 5), chats: per.length };
+}
+
+async function snapshot(app) {
+  const link = app.link;
+  const url = app.serverUrl || '';
+  const online = !!(link && link.online);
+  const ping = online ? await cached('ping', 4000, () => app.ping().catch(() => null)) : null;
+  let sessions = null;
+  let sessionsNote = null;
+  if (online) {
+    try {
+      sessions = await cached('sessions', 4000, async () => (await link.request('sessions', {})).sessions);
+    } catch (e) {
+      sessionsNote = e.code === 'unknown' ? 'This relay is too old to list them. Update it to see where your account is open.' : null;
+    }
+  }
+  const transport = link && link.transport ? link.transport() : null;
+  const kind = app.via ? 'nearby host' : /^https?:/i.test(url) ? 'gossip website' : 'relay';
+
+  // every connection gossip makes, and everything it's listening on
+  const outbound = [];
+  if (url) {
+    outbound.push({
+      what: `Messages (${kind})`, where: hostOf(url) + (transport && transport.remote && !/^[\d.:[\]]+$/.test(hostOf(url)) ? `  ${transport.remote}` : ''),
+      how: transport && transport.tls ? `${transport.tls.protocol || 'TLS'} encrypted` : isLocal(url) ? 'this computer' : app.via ? 'local network' : 'NOT encrypted',
+      secure: !!(transport && transport.tls) || isLocal(url) || !!app.via,
+      state: app.conn.state,
+    });
+  }
+  const where = U.install();
+  if (where.managed && prefs.val('update') !== 'off') {
+    let checked = 0;
+    try { checked = JSON.parse(fs.readFileSync(where.state, 'utf8')).checked || 0; } catch { /* never */ }
+    outbound.push({ what: 'Update check', where: 'raw.githubusercontent.com, codeload.github.com', how: 'TLS encrypted', secure: true, state: checked ? 'checked' : 'not yet', at: checked || null });
+  }
+  if (app.calls && app.calls.stunUsed) {
+    outbound.push({ what: 'Call setup (finds your public address)', where: STUN.map((s) => s.replace(/^stun:/, '')).join(', '), how: 'STUN over UDP', secure: null, state: 'used', at: app.calls.stunUsed });
+  }
+  for (const c of app.calls ? app.calls.summary() : []) {
+    if (!c.route || !c.route.remote) continue;
+    outbound.push({ what: `Call with ${c.peer}`, where: c.route.remote, how: `${(c.route.proto || 'udp').toUpperCase()} · DTLS-SRTP encrypted · ${c.route.kind}`, secure: true, state: c.state, at: c.started || c.made });
+  }
+  if (app.nearby) outbound.push({ what: 'Finding people nearby', where: 'your local network', how: 'UDP broadcast, port 47800', secure: null, state: 'on' });
+
+  const listening = [];
+  if (app.web && app.web.port) listening.push({ what: 'This dashboard and calls', where: `127.0.0.1:${app.web.port}`, who: 'only this computer, with a secret address' });
+  if (app.nearby && app.nearby.hosting) listening.push({ what: 'Nearby chat host', where: `port ${app.nearby.port || 47801}`, who: 'anyone on your local network (messages are still end-to-end encrypted)' });
+
+  // who can read each conversation
+  const chats = [];
+  const seen = new Set();
+  for (const p of app.contacts()) seen.add('@' + p.name);
+  for (const k of app.vault.conversations()) if (k[0] === '@') seen.add(k);
+  for (const k of seen) {
+    if (k.slice(1) === app.me) continue;
+    chats.push({ key: k, kind: 'dm', muted: app.muted(k), readers: [personOf(app, app.me), personOf(app, k.slice(1))] });
+  }
+  for (const r of app.rooms()) {
+    const chat = app.chats.get('#' + r);
+    const names = chat ? [...chat.members.keys()] : [];
+    chats.push({
+      key: '#' + r, kind: 'room', muted: app.muted('#' + r), owner: chat ? chat.owner : null, private: !!(chat && chat.private),
+      readers: (names.length ? names : [app.me]).map((n) => personOf(app, n)),
+    });
+  }
+
+  return {
+    now: Date.now(), me: app.me, version: pkg.version, host: os.hostname(),
+    fingerprint: app.identity ? e2e.fingerprint(app.identity.signPub) : null,
+    connection: {
+      url, host: hostOf(url), kind, state: app.conn.state, detail: app.conn.detail && app.conn.detail.message ? app.conn.detail.message : null,
+      since: online ? app.onlineSince : null, reconnects: app.reconnects, ping, transport,
+      server: link && link.server ? { name: link.server.name, version: link.server.version || null } : null,
+    },
+    sessions, sessionsNote, outbound, listening, chats, checks: checks(app),
+    counts: app.counts, history: await cached('history', 15000, async () => history(app)),
+    calls: app.calls ? app.calls.summary() : [],
+    activity: app.activity.slice(-60).reverse(),
+    theme: prefs.val('theme'),
+  };
+}
+
+function routes(app, web) {
+  if (web._dashboard) return;
+  web._dashboard = true;
+  web.on('GET', 'dashboard', (req, res, rest, send) => send(200, web.page('dashboard.html', {
+    api: web.url('dashapi'), act: web.url('dashact'),
+  }), 'text/html; charset=utf-8'));
+  web.on('GET', 'dashapi', async (req, res, rest, send) => send(200, JSON.stringify(await snapshot(app)), 'application/json'));
+  web.on('POST', 'dashact', async (req, res, rest, send, m) => {
+    let result = { ok: true };
+    try {
+      if (m.do === 'signout') {
+        const r = await app.link.request('signout', {});
+        app.otherSessions = 0;
+        cache.delete('sessions');
+        app.say(`Signed out ${r.closed} other place${r.closed === 1 ? '' : 's'} from the dashboard.`, 'warn');
+        result = { ok: true, closed: r.closed };
+      } else if (m.do === 'reconnect' && app.link) {
+        app.link.retryNow();
+      } else result = { ok: false };
+    } catch (e) {
+      result = { ok: false, error: e.message };
+    }
+    send(200, JSON.stringify(result), 'application/json');
+  });
+}
+
+/** /dashboard: start the page and open it. Returns the address if no browser could be opened. */
+async function open(app) {
+  const web = app.web || new Web(app);
+  app.web = web;
+  routes(app, web);
+  await web.start();
+  const url = web.url('dashboard');
+  return { url, opened: openBrowser(url) };
+}
+
+module.exports = { open, snapshot, checks };

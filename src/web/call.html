@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gossip · call</title>
+<style>
+/*__THEME__*/
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 14px/1.5 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+/* the window: a terminal box, drawn the way gossip draws its own */
+.win { position: fixed; inset: 14px; border: 1px solid var(--border); border-radius: 9px; display: grid; grid-template-rows: auto 1fr auto auto; }
+.label { position: absolute; top: -.8em; background: var(--bg); padding: 0 .6ch; white-space: nowrap; }
+.label.l { left: 2ch; }
+.label.r { right: 2ch; color: var(--dim); }
+.brand { color: var(--accent); font-weight: 700; }
+.peer { color: var(--accent2); font-weight: 700; }
+.dim { color: var(--dim); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.err { color: var(--err); }
+
+.stage { position: relative; margin: 1.4em 2ch 0; min-height: 0; border-radius: 6px; overflow: hidden; }
+#them { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; transition: opacity .3s; }
+#them.on { opacity: 1; }
+.card { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; gap: .6em; padding: 1em; }
+.card.off { display: none; }
+#pebble { width: 160px; height: 160px; image-rendering: pixelated; }
+.big { font-size: 1.25rem; }
+.note { max-width: 46ch; }
+#me { position: absolute; right: 1.2ch; bottom: 1em; width: min(24%, 260px); border: 1px solid var(--border); border-radius: 6px; background: #000; transform: scaleX(-1); display: none; }
+#me.on { display: block; }
+#me.screen { transform: none; }
+.tap { position: absolute; inset: 0; display: none; place-content: center; background: rgba(0, 0, 0, .55); cursor: pointer; }
+.tap.on { display: grid; }
+
+/* the menu line: like gossip's footer, but you can click it */
+.keys { display: flex; flex-wrap: wrap; gap: .3em 2.4ch; padding: .9em 2ch .5em; border-top: 1px solid var(--border); margin-top: 1em; }
+.keys button { background: none; border: 0; padding: .1em .6ch; border-radius: 4px; cursor: pointer; }
+.keys button:hover { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.keys button:disabled { opacity: .35; cursor: default; }
+.keys kbd { color: var(--accent2); font: inherit; font-weight: 700; }
+.keys button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.keys button[aria-pressed="true"] kbd { color: var(--bg); }
+.keys .end kbd, .keys .end { color: var(--err); }
+
+.status { display: flex; justify-content: space-between; gap: 2ch; padding: .2em 2ch .7em; color: var(--dim); white-space: nowrap; overflow: hidden; }
+.meters { display: flex; gap: 3ch; }
+.bar { color: var(--ok); letter-spacing: -.05em; display: inline-block; width: 8ch; }
+@media (max-width: 640px) {
+  .label.r { display: none; }
+  .status { flex-direction: column; gap: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #them { transition: none; } }
+</style>
+</head>
+<body>
+<div class="win">
+  <span class="label l"><span class="brand">gossip</span> <span class="dim">·</span> call with <span class="peer" id="peerName"></span></span>
+  <span class="label r" id="clock">00:00</span>
+  <div></div>
+  <div class="stage">
+    <video id="them" autoplay playsinline></video>
+    <div class="card" id="card">
+      <canvas id="pebble" width="16" height="16" aria-hidden="true"></canvas>
+      <div class="big" id="headline">Getting your microphone ready…</div>
+      <div class="note dim" id="subline"></div>
+    </div>
+    <video id="me" autoplay playsinline muted></video>
+    <div class="tap" id="tap"><span class="big">Click anywhere to hear <span class="peer" id="tapName"></span></span></div>
+  </div>
+  <div class="keys" role="toolbar" aria-label="Call controls">
+    <button id="bMute" aria-pressed="false"><kbd>m</kbd> mute</button>
+    <button id="bCam" aria-pressed="false"><kbd>v</kbd> camera</button>
+    <button id="bScreen" aria-pressed="false"><kbd>s</kbd> share screen</button>
+    <button id="bEnd" class="end"><kbd>esc</kbd> hang up</button>
+  </div>
+  <div class="status">
+    <span id="state">● starting</span>
+    <span class="meters"><span>you <span class="bar" id="mMe"></span></span><span><span id="peerName2"></span> <span class="bar" id="mThem"></span></span></span>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var C = __CONFIG__;
+  var $ = function (id) { return document.getElementById(id); };
+  $('peerName').textContent = $('peerName2').textContent = $('tapName').textContent = C.peer;
+  document.title = 'gossip · call with ' + C.peer;
+
+  // ── Pebble on the phone while it rings ─────────────────────────
+  var P = C.pixels, pebbleScene = 'phone', pebbleFrame = 0;
+  function paint(grid) {
+    var c = $('pebble').getContext('2d');
+    c.clearRect(0, 0, 16, 16);
+    for (var i = 0; i < 256; i++) { var ink = P.ink[grid[i]]; if (ink) { c.fillStyle = ink; c.fillRect(i % 16, i >> 4, 1, 1); } }
+  }
+  (function pebble() {
+    var frames = P.scenes[pebbleScene];
+    pebbleFrame = (pebbleFrame + 1) % frames.length;
+    paint(P.grids[frames[pebbleFrame][0]]);
+    setTimeout(pebble, frames[pebbleFrame][1] * 1.3);
+  })();
+
+  // ── talking to gossip (in your terminal) ───────────────────────
+  function post(m) {
+    return fetch(C.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(m) }).catch(function () {});
+  }
+  var endedAt = 0, ended = false, pc = null, local = null, camTrack = null, screenTrack = null, videoSender = null, ctl = null, startedAt = 0;
+  var remote = new MediaStream(), theirCam = false;
+
+  function show(headline, sub, cls) {
+    $('card').classList.remove('off');
+    $('headline').textContent = headline;
+    $('headline').className = 'big ' + (cls || '');
+    $('subline').textContent = sub || '';
+  }
+  function state(text, cls) { $('state').innerHTML = '<span class="' + (cls || '') + '">●</span> ' + text; }
+
+  function finish(reason, fromHere) {
+    if (ended) return;
+    ended = true;
+    endedAt = Date.now();
+    $('tap').classList.remove('on');
+    if (fromHere) post({ t: 'end' });
+    [camTrack, screenTrack].concat(local ? local.getTracks() : []).forEach(function (t) { if (t) t.stop(); });
+    if (pc) pc.close();
+    $('them').classList.remove('on');
+    $('me').classList.remove('on');
+    pebbleScene = 'dance';
+    var said = { declined: C.peer + ' declined.', busy: C.peer + ' is on another call.', missed: 'Missed call.',
+      'no answer': C.peer + " didn't answer.", unavailable: C.peer + " can't take calls right now.", 'connection failed': "The call couldn't connect." };
+    show('Call ended', (said[reason] || '') + ' You can close this tab.');
+    state('ended', 'dim');
+    document.querySelectorAll('.keys button').forEach(function (b) { b.disabled = true; });
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 4000);
+  }
+
+  var es = new EventSource(C.events);
+  es.onmessage = function (e) {
+    var m;
+    try { m = JSON.parse(e.data); } catch (x) { return; }
+    if (m.t === 'offer' && C.role === 'callee') onOffer(m.sdp);
+    else if (m.t === 'answer' && C.role === 'caller' && pc && !pc.currentRemoteDescription) {
+      state('connecting', 'warn');
+      show('Connecting…', '');
+      pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(function (x) { fail(x); });
+    } else if (m.t === 'end') finish(m.reason, false);
+  };
+  es.onerror = function () { if (!ended && es.readyState === 2) show('gossip was closed', 'The call keeps going until you hang up, but gossip can no longer pass anything along.', 'warn'); };
+
+  function fail(err) {
+    post({ t: 'failed', why: String((err && err.message) || err) });
+    finish('connection failed', false);
+  }
+
+  // ── microphone and camera ──────────────────────────────────────
+  function media() {
+    var audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    var video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+    return navigator.mediaDevices.getUserMedia({ audio: audio, video: C.video ? video : false })
+      .catch(function () { return navigator.mediaDevices.getUserMedia({ audio: audio }); })
+      .then(function (s) {
+        local = s;
+        camTrack = s.getVideoTracks()[0] || null;
+        preview();
+        meter(s, $('mMe'));
+        return s;
+      });
+  }
+  function preview() {
+    var t = screenTrack || camTrack;
+    $('me').srcObject = t ? new MediaStream([t]) : null;
+    $('me').classList.toggle('on', !!t);
+    $('me').classList.toggle('screen', !!screenTrack);
+    $('bCam').setAttribute('aria-pressed', String(!!camTrack));
+    $('bScreen').setAttribute('aria-pressed', String(!!screenTrack));
+    tellPeer();
+  }
+  function tellPeer() { if (ctl && ctl.readyState === 'open') ctl.send(JSON.stringify({ cam: !!(camTrack || screenTrack), mute: !local || !local.getAudioTracks().some(function (t) { return t.enabled; }) })); }
+
+  // ── the connection ─────────────────────────────────────────────
+  function makePc() {
+    pc = new RTCPeerConnection({ iceServers: C.stun.map(function (u) { return { urls: u }; }) });
+    $('them').srcObject = remote;
+    ctl = pc.createDataChannel('gossip', { negotiated: true, id: 0 });
+    ctl.onopen = tellPeer;
+    ctl.onmessage = function (e) {
+      try { var m = JSON.parse(e.data); theirCam = !!m.cam; theirs(); $('peerName2').className = m.mute ? 'dim' : ''; } catch (x) {}
+    };
+    pc.ontrack = function (e) {
+      remote.addTrack(e.track);
+      e.track.onunmute = theirs;
+      e.track.onmute = theirs;
+      if (e.track.kind === 'audio') meter(new MediaStream([e.track]), $('mThem'));
+      var p = $('them').paused ? $('them').play() : null;
+      // only a real "not allowed to play sound yet" needs a click
+      if (p && p.catch) p.catch(function (x) { if (x && x.name === 'NotAllowedError') $('tap').classList.add('on'); });
+    };
+    pc.onconnectionstatechange = function () {
+      var s = pc.connectionState;
+      if (s === 'connected' && !startedAt) {
+        startedAt = Date.now();
+        pebbleScene = 'dance';
+        post({ t: 'live' });
+        state('live', 'ok');
+        theirs();
+      } else if (s === 'disconnected') state('reconnecting…', 'warn');
+      else if (s === 'connected') state('live', 'ok');
+      else if (s === 'failed') fail(startedAt ? 'the connection dropped' : "your computers couldn't reach each other (a strict network or firewall can block direct calls)");
+    };
+  }
+  function theirs() {
+    if (!startedAt) return;
+    var v = remote.getVideoTracks()[0];
+    var on = theirCam && v && !v.muted;
+    $('them').classList.toggle('on', !!on);
+    if (on) $('card').classList.add('off');
+    else show(C.peer, 'camera off', '');
+  }
+  function gathered() {
+    return new Promise(function (resolve) {
+      if (pc.iceGatheringState === 'complete') return resolve();
+      var t = setTimeout(resolve, 2500);
+      pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') { clearTimeout(t); resolve(); } });
+    });
+  }
+
+  function caller() {
+    show('Calling ' + C.peer + '…', 'Allow your microphone if your browser asks.');
+    media().then(function () {
+      makePc();
+      var mic = local.getAudioTracks()[0];
+      pc.addTransceiver(mic || 'audio', { direction: 'sendrecv', streams: [local] });
+      videoSender = pc.addTransceiver(camTrack || 'video', { direction: 'sendrecv', streams: [local] }).sender;
+      return pc.createOffer();
+    }).then(function (o) { return pc.setLocalDescription(o); })
+      .then(gathered)
+      .then(function () {
+        post({ t: 'offer', sdp: pc.localDescription.sdp });
+        show('Ringing ' + C.peer + '…', 'Calls connect your computers directly, so ' + C.peer + ' will see your IP address.');
+        state('ringing', 'warn');
+      }).catch(noMic);
+  }
+
+  var waitingOffer = null;
+  function callee() {
+    show('Connecting to ' + C.peer + '…', 'Allow your microphone if your browser asks.');
+    state('connecting', 'warn');
+    media().then(function () { if (waitingOffer) onOffer(waitingOffer); }).catch(noMic);
+  }
+  function onOffer(sdp) {
+    if (!local) { waitingOffer = sdp; return; }
+    if (pc) return;
+    makePc();
+    pc.setRemoteDescription({ type: 'offer', sdp: sdp }).then(function () {
+      pc.getTransceivers().forEach(function (tr) {
+        var kind = tr.receiver.track.kind;
+        tr.direction = 'sendrecv';
+        if (kind === 'audio') tr.sender.replaceTrack(local.getAudioTracks()[0] || null);
+        if (kind === 'video') { videoSender = tr.sender; tr.sender.replaceTrack(camTrack); }
+        if (local) tr.sender.setStreams && tr.sender.setStreams(local);
+      });
+      return pc.createAnswer();
+    }).then(function (a) { return pc.setLocalDescription(a); })
+      .then(gathered)
+      .then(function () { post({ t: 'answer', sdp: pc.localDescription.sdp }); })
+      .catch(fail);
+  }
+  function noMic(err) {
+    var denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    show(denied ? 'gossip needs your microphone' : 'No microphone found', denied ? 'Allow it in the address bar, then reload this page.' : String((err && err.message) || ''), 'err');
+    state('waiting for a microphone', 'err');
+  }
+
+  // ── buttons ────────────────────────────────────────────────────
+  function mute() {
+    if (!local) return;
+    var on = local.getAudioTracks().some(function (t) { return t.enabled; });
+    local.getAudioTracks().forEach(function (t) { t.enabled = !on; });
+    $('bMute').setAttribute('aria-pressed', String(on));
+    tellPeer();
+  }
+  function camera() {
+    if (camTrack) {
+      camTrack.stop();
+      camTrack = null;
+      if (videoSender && !screenTrack) videoSender.replaceTrack(null);
+      return preview();
+    }
+    navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } }).then(function (s) {
+      camTrack = s.getVideoTracks()[0];
+      if (videoSender && !screenTrack) videoSender.replaceTrack(camTrack);
+      preview();
+    }).catch(function () { show('No camera', 'Your browser could not open a camera.', 'warn'); });
+  }
+  function share() {
+    if (screenTrack) {
+      screenTrack.stop();
+      screenTrack = null;
+      if (videoSender) videoSender.replaceTrack(camTrack);
+      return preview();
+    }
+    navigator.mediaDevices.getDisplayMedia({ video: true }).then(function (s) {
+      screenTrack = s.getVideoTracks()[0];
+      screenTrack.onended = function () { screenTrack = null; if (videoSender) videoSender.replaceTrack(camTrack); preview(); };
+      if (videoSender) videoSender.replaceTrack(screenTrack);
+      preview();
+    }).catch(function () {});
+  }
+  $('bMute').onclick = mute;
+  $('bCam').onclick = camera;
+  $('bScreen').onclick = share;
+  $('bEnd').onclick = function () { finish('hung up', true); };
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $('bScreen').disabled = true;
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey || ended) return;
+    if (e.key === 'm') mute();
+    else if (e.key === 'v') camera();
+    else if (e.key === 's' && !$('bScreen').disabled) share();
+    else if (e.key === 'Escape') finish('hung up', true);
+  });
+  $('tap').onclick = function () { $('them').play(); $('tap').classList.remove('on'); };
+  window.addEventListener('pagehide', function () { if (!ended) navigator.sendBeacon(C.api, JSON.stringify({ t: 'end' })); });
+
+  // ── sound meters and the clock ─────────────────────────────────
+  var actx = null;
+  function meter(stream, el) {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      var src = actx.createMediaStreamSource(stream), an = actx.createAnalyser();
+      an.fftSize = 512;
+      src.connect(an);
+      var buf = new Uint8Array(an.fftSize), blocks = ' ▁▂▃▄▅▆▇█', hist = [];
+      (function tick() {
+        an.getByteTimeDomainData(buf);
+        var sum = 0;
+        for (var i = 0; i < buf.length; i++) { var v = (buf[i] - 128) / 128; sum += v * v; }
+        var lvl = Math.min(1, Math.sqrt(sum / buf.length) * 4);
+        hist.push(blocks[Math.round(lvl * 8)]);
+        if (hist.length > 8) hist.shift();
+        el.textContent = hist.join('');
+        setTimeout(tick, 90);
+      })();
+      document.addEventListener('click', function () { if (actx.state === 'suspended') actx.resume(); }, { once: true });
+    } catch (e) { /* no meters, no problem */ }
+  }
+  setInterval(function () {
+    var s = startedAt ? Math.floor(((endedAt || Date.now()) - startedAt) / 1000) : 0;
+    $('clock').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 500);
+
+  // how the call is travelling, for the status line and gossip's dashboard
+  setInterval(function () {
+    if (!pc || !startedAt || ended) return;
+    pc.getStats().then(function (stats) {
+      var pair = null, cands = {};
+      stats.forEach(function (s) {
+        if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
+        if (s.type === 'local-candidate' || s.type === 'remote-candidate') cands[s.id] = s;
+      });
+      if (!pair) stats.forEach(function (s) { if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') pair = s; });
+      if (!pair) return;
+      var l = cands[pair.localCandidateId] || {}, r = cands[pair.remoteCandidateId] || {};
+      var kind = l.candidateType === 'relay' || r.candidateType === 'relay' ? 'relayed' : (l.candidateType === 'host' && r.candidateType === 'host' ? 'same network' : 'direct');
+      var rtt = pair.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null;
+      state('live · ' + kind + (rtt != null ? ' · ' + rtt + ' ms' : '') + ' · end-to-end encrypted', 'ok');
+      post({ t: 'stats', route: { kind: kind, remote: (r.address || r.ip || '') + (r.port ? ':' + r.port : ''), proto: r.protocol || '', rtt: rtt } });
+    }).catch(function () {});
+  }, 3000);
+
+  if (C.role === 'caller') caller(); else callee();
+})();
+</script>
+</body>
+</html>

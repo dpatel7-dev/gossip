@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gossip · dashboard</title>
+<style>
+/*__THEME__*/
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; padding: 1.6em 2ch 2.5em; color: var(--fg);
+  font: 14px/1.55 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.dim { color: var(--dim); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.err { color: var(--err); }
+.acc { color: var(--accent); }
+.acc2 { color: var(--accent2); }
+.srv { color: var(--server); }
+b { font-weight: 700; }
+
+/* the top line: gossip's own title bar */
+header { display: flex; align-items: center; gap: 1.5ch; margin: 0 0 1.4em; flex-wrap: wrap; }
+header canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+header h1 { margin: 0; font-size: 1em; font-weight: 700; color: var(--accent); }
+header .rule { flex: 1; border-top: 1px solid var(--border); min-width: 4ch; }
+
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2em 2ch; }
+.box { position: relative; border: 1px solid var(--border); border-radius: 8px; padding: 1.15em 2ch 1em; min-width: 0; }
+.box > h2 { position: absolute; top: -.8em; left: 1.5ch; margin: 0; padding: 0 .6ch; background: var(--bg); font: inherit; font-weight: 700; color: var(--accent2); }
+.box > .aside { position: absolute; top: -.8em; right: 1.5ch; padding: 0 .6ch; background: var(--bg); color: var(--dim); }
+.w4 { grid-column: span 4; } .w5 { grid-column: span 5; } .w6 { grid-column: span 6; } .w7 { grid-column: span 7; } .w8 { grid-column: span 8; } .w12 { grid-column: span 12; }
+
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: .1em 2ch; margin: 0; }
+dl.kv dt { color: var(--dim); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 400; color: var(--dim); padding: 0 2ch .3em 0; border-bottom: 1px solid var(--border); }
+td { padding: .25em 2ch .25em 0; vertical-align: top; overflow-wrap: anywhere; }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li { padding: .12em 0; }
+.check { display: grid; grid-template-columns: 2ch 1fr; gap: 1ch; }
+.act { background: none; border: 1px solid var(--border); border-radius: 5px; padding: .2em 1.2ch; cursor: pointer; margin-top: .8em; }
+.act:hover { border-color: var(--accent); color: var(--accent); }
+.act.danger:hover { border-color: var(--err); color: var(--err); }
+.pill { display: inline-block; padding: 0 .8ch; border-radius: 4px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+
+/* the network map, drawn in text */
+.map { white-space: pre; overflow-x: auto; font-size: 1.02em; line-height: 1.35; }
+.map .pkt { color: var(--accent2); }
+
+/* activity sparkline */
+.spark { font-size: 1.9em; line-height: 1; letter-spacing: .08em; white-space: nowrap; overflow: hidden; }
+.axis { display: flex; justify-content: space-between; color: var(--dim); font-size: .85em; }
+
+.chat { padding: .45em 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); }
+.chat:first-child { border-top: 0; padding-top: 0; }
+.who { display: flex; flex-wrap: wrap; gap: .2em 2.5ch; margin-top: .15em; }
+.log li { display: grid; grid-template-columns: 9ch 1fr; gap: 1ch; }
+footer { margin-top: 2em; color: var(--dim); }
+@media (max-width: 1000px) { .w4, .w5, .w6, .w7, .w8 { grid-column: span 12; } }
+</style>
+</head>
+<body>
+<header>
+  <canvas id="pebble" width="16" height="16" aria-hidden="true"></canvas>
+  <h1>gossip <span class="dim">·</span> dashboard</h1>
+  <span id="who" class="dim"></span>
+  <span class="rule"></span>
+  <span id="status"></span>
+</header>
+
+<div class="grid">
+  <section class="box w12"><h2>Where your messages go</h2><span class="aside" id="mapAside"></span><div class="map" id="map"></div></section>
+
+  <section class="box w4"><h2>Connection</h2><dl class="kv" id="conn"></dl></section>
+  <section class="box w4"><h2>Who is signed in as you</h2><div id="sessions"></div></section>
+  <section class="box w4"><h2>Security</h2><div id="checks"></div></section>
+
+  <section class="box w12"><h2>Every connection gossip makes</h2><div id="outbound"></div><div id="listening"></div></section>
+
+  <section class="box w7"><h2>Who can read what</h2><span class="aside">the relay sees who and when - never what</span><div id="chats"></div></section>
+  <section class="box w5"><h2>Your gossip</h2><div id="stats"></div></section>
+
+  <section class="box w7"><h2>Activity</h2><ul class="plain log" id="log"></ul></section>
+  <section class="box w5"><h2>Calls</h2><div id="calls"></div></section>
+</div>
+<footer>Updates every couple of seconds while gossip is open. Only this computer can see this page.</footer>
+
+<script>
+(function () {
+  'use strict';
+  var C = __CONFIG__;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var ago = function (ts) {
+    if (!ts) return '';
+    var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  };
+  var time = function (ts) { var d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0'); };
+  var bytes = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : (n || 0) + ' B'; };
+  var dot = function (on) { return on === true ? '<span class="ok">●</span>' : on === false ? '<span class="dim">○</span>' : '<span class="dim">·</span>'; };
+  var mark = function (ok) { return ok === true ? '<span class="ok">✓</span>' : ok === false ? '<span class="warn">!</span>' : '<span class="dim">·</span>'; };
+
+  // Pebble, dancing in the corner
+  var P = C.pixels, f = 0;
+  (function pebble() {
+    var frames = P.scenes.dance, c = $('pebble').getContext('2d'), g = P.grids[frames[f][0]];
+    c.clearRect(0, 0, 16, 16);
+    for (var i = 0; i < 256; i++) { var ink = P.ink[g[i]]; if (ink) { c.fillStyle = ink; c.fillRect(i % 16, i >> 4, 1, 1); } }
+    var wait = frames[f][1] * 1.4;
+    f = (f + 1) % frames.length;
+    setTimeout(pebble, f === 0 ? wait + 2200 : wait);
+  })();
+
+  var S = null, tick = 0;
+
+  function drawMap() {
+    if (!S) return;
+    var c = S.connection, online = c.state === 'online';
+    var you = ' you: ' + S.me + ' ', mid = ' ' + (c.host || 'not set') + ' ', sub = ' ' + c.kind + ' ';
+    var w1 = Math.max(you.length, 12), w2 = Math.max(mid.length, sub.length, 16);
+    var line = function (s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); };
+    var how = c.transport && c.transport.tls ? c.transport.tls.protocol || 'TLS' : /localhost|127\./.test(c.url) ? 'local' : c.kind === 'nearby host' ? 'LAN' : online ? 'NO TLS' : '';
+    var lat = c.ping != null ? c.ping + ' ms' : '';
+    var len = 16, pos = tick % (len + 6), pipe = '';
+    for (var i = 0; i < len; i++) pipe += online && i === pos ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
+    var pipe2 = '';
+    for (i = 0; i < 8; i++) pipe2 += online && i === (tick + 5) % 12 ? '<span class="pkt">◆</span>' : (online ? '━' : '╌');
+    var people = [];
+    S.chats.filter(function (x) { return x.kind === 'dm'; }).forEach(function (x) { var p = x.readers[1]; people.push(dot(p.online) + ' ' + esc(p.name) + (p.changed ? ' <span class="warn">!</span>' : '')); });
+    var rooms = S.chats.filter(function (x) { return x.kind === 'room'; }).map(function (x) { return '<span class="srv">' + esc(x.key) + '</span> <span class="dim">' + x.readers.length + '</span>'; });
+    var right = people.concat(rooms);
+    var tlsCls = how === 'NO TLS' ? 'err' : 'dim';
+    var rows = [
+      '╭' + '─'.repeat(w1) + '╮' + ' '.repeat(len + 2) + '╭' + '─'.repeat(w2) + '╮',
+      '│<b class="acc">' + esc(line(you, w1)) + '</b>│ <span class="' + tlsCls + '">' + esc(line(' ' + how, len)) + '</span> │' + esc(line(mid, w2)) + '│',
+      '│' + esc(line(' ' + S.host, w1)) + '│' + pipe + '▶ │<span class="dim">' + esc(line(sub, w2)) + '</span>│' + pipe2 + '▶',
+      '│' + ' '.repeat(w1) + '│ <span class="dim">' + esc(line(' ' + lat, len)) + '</span> │' + ' '.repeat(w2) + '│',
+      '╰' + '─'.repeat(w1) + '╯' + ' '.repeat(len + 2) + '╰' + '─'.repeat(w2) + '╯'
+    ];
+    var col = 4;
+    for (var r = 0; r < Math.max(rows.length, Math.ceil(right.length / 1)); r++) {
+      var item = right[r] || '';
+      if (r < rows.length) rows[r] += item ? ' '.repeat(col) + item : '';
+      else rows.push(' '.repeat(w1 + len + w2 + 8 + (r === rows.length ? 0 : 0) + col + 8) + item);
+    }
+    $('map').innerHTML = rows.join('\n');
+    $('mapAside').textContent = right.length ? 'people and servers you talk to' : '';
+  }
+
+  function render() {
+    var c = S.connection, t = c.transport || {};
+    $('who').innerHTML = esc(S.me) + ' <span class="dim">on</span> ' + esc(S.host) + ' <span class="dim">· v' + esc(S.version) + '</span>';
+    var st = { online: ['ok', 'online'], connecting: ['warn', 'connecting'], offline: ['err', 'offline'], idle: ['dim', 'not connected'] }[c.state] || ['dim', c.state];
+    $('status').innerHTML = '<span class="' + st[0] + '">●</span> ' + st[1];
+
+    var kv = [
+      ['status', '<span class="' + st[0] + '">' + st[1] + '</span>' + (c.detail ? ' <span class="dim">' + esc(c.detail) + '</span>' : '')],
+      ['through', esc(c.host) + ' <span class="dim">(' + esc(c.kind) + ')</span>'],
+      ['address', esc(t.remote || '-')],
+      ['encryption', t.tls ? '<span class="ok">' + esc(t.tls.protocol || 'TLS') + '</span> <span class="dim">' + esc(t.tls.cipher || '') + '</span>' : (/localhost|127\./.test(c.url) ? '<span class="dim">not needed (this computer)</span>' : c.kind === 'nearby host' ? '<span class="dim">local network</span>' : c.url ? '<span class="err">none on the connection</span> <span class="dim">(messages still are)</span>' : '-')],
+      ['certificate', t.tls ? esc(t.tls.subject || '?') + ' <span class="dim">by ' + esc(t.tls.issuer || '?') + (t.tls.verified ? ', verified' : ', NOT verified') + (t.tls.validTo ? ', until ' + esc(t.tls.validTo.replace(/ \d\d:\d\d:\d\d/, '')) : '') + '</span>' : '<span class="dim">-</span>'],
+      ['round trip', c.ping != null ? c.ping + ' ms' : '-'],
+      ['connected', c.since ? ago(c.since).replace(' ago', '') + (c.reconnects ? ' <span class="dim">(' + c.reconnects + ' reconnect' + (c.reconnects === 1 ? '' : 's') + ')</span>' : '') : '-'],
+      ['traffic', t.remote ? '↑ ' + bytes(t.bytesOut) + '  ↓ ' + bytes(t.bytesIn) : '-'],
+      ['this session', S.counts.sent + ' sent · ' + S.counts.received + ' received'],
+      ['server', c.server ? esc(c.server.name || '') + (c.server.version ? ' <span class="dim">v' + esc(c.server.version) + '</span>' : '') : '-'],
+      ['your key', '<span class="dim">' + esc(S.fingerprint || '') + '</span>']
+    ];
+    $('conn').innerHTML = kv.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('');
+
+    // sessions
+    var h = '';
+    if (S.sessions) {
+      var mode = { live: 'chat open', peek: 'checking messages', post: 'sending a message' };
+      h += '<ul class="plain">' + S.sessions.map(function (x) {
+        return '<li>' + (x.you ? '<span class="ok">●</span> <b>this window</b>' : '<span class="warn">●</span> <b>somewhere else</b>') +
+          ' <span class="dim">' + esc(mode[x.mode] || x.mode) + (x.ip ? ' · ' + esc(x.ip) : '') + (x.since ? ' · ' + ago(x.since) : '') + '</span></li>';
+      }).join('') + '</ul>';
+      var others = S.sessions.filter(function (x) { return !x.you; }).length;
+      h += others
+        ? '<p class="warn">Your account is open in ' + (others + 1) + ' places. Fine if they are all you.</p><button class="act danger" id="signout">sign out everywhere else</button>'
+        : '<p class="dim">Only you, only here.</p>';
+    } else h = '<p class="dim">' + esc(S.sessionsNote || (c.state === 'online' ? 'Checking…' : 'Not connected.')) + '</p>';
+    $('sessions').innerHTML = h;
+    var so = $('signout');
+    if (so) so.onclick = function () {
+      so.disabled = true;
+      fetch(C.act, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ do: 'signout' }) }).then(load);
+    };
+
+    $('checks').innerHTML = S.checks.map(function (x) { return '<div class="check">' + mark(x.ok) + '<span class="' + (x.ok === false ? 'warn' : '') + '">' + esc(x.text) + '</span></div>'; }).join('');
+
+    // connections
+    var out = '<table><thead><tr><th>what</th><th>where</th><th>how</th><th>status</th></tr></thead><tbody>';
+    out += S.outbound.map(function (o) {
+      var how = o.secure === true ? '<span class="ok">' + esc(o.how) + '</span>' : o.secure === false ? '<span class="err">' + esc(o.how) + '</span>' : '<span class="dim">' + esc(o.how) + '</span>';
+      var stc = o.state === 'online' || o.state === 'live' || o.state === 'on' ? 'ok' : o.state === 'offline' ? 'err' : 'dim';
+      return '<tr><td>' + esc(o.what) + '</td><td>' + esc(o.where) + '</td><td>' + how + '</td><td><span class="' + stc + '">' + esc(o.state) + '</span>' + (o.at ? ' <span class="dim">' + ago(o.at) + '</span>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+    $('outbound').innerHTML = S.outbound.length ? out : '<p class="dim">Nothing yet.</p>';
+    $('listening').innerHTML = S.listening.length ? '<p class="dim" style="margin:1.1em 0 .3em">Listening on this computer:</p><ul class="plain">' + S.listening.map(function (l) {
+      return '<li><span class="acc">' + esc(l.where) + '</span>  ' + esc(l.what) + ' <span class="dim">· reachable by ' + esc(l.who) + '</span></li>';
+    }).join('') + '</ul>' : '';
+
+    // who can read what
+    $('chats').innerHTML = S.chats.length ? S.chats.map(function (ch) {
+      var head = (ch.kind === 'room' ? '<span class="srv">' + esc(ch.key) + '</span>' : '<span class="acc">' + esc(ch.key.slice(1)) + '</span>') +
+        (ch.kind === 'room' ? ' <span class="dim">' + ch.readers.length + (ch.readers.length === 1 ? ' person' : ' people') + (ch.private ? ' · invite-only' : '') + (ch.owner ? ' · owner ' + esc(ch.owner) : '') + '</span>' : ' <span class="dim">direct</span>') +
+        (ch.muted ? ' <span class="pill">muted</span>' : '');
+      var who = ch.readers.map(function (p) {
+        var tag = p.you ? '<span class="dim">(you)</span>' : p.changed ? '<span class="warn">key changed!</span>' : p.verified ? '<span class="ok">✓ verified</span>' : '<span class="dim">not verified</span>';
+        return '<span>' + dot(p.online) + ' ' + esc(p.name) + ' ' + tag + '</span>';
+      }).join('');
+      return '<div class="chat">' + head + '<div class="who">' + who + '</div></div>';
+    }).join('') : '<p class="dim">No chats yet.</p>';
+
+    // stats
+    var hst = S.history, blocks = ' ▁▂▃▄▅▆▇█', max = 1;
+    hst.days.forEach(function (d) { max = Math.max(max, d.sent + d.received); });
+    var spark = hst.days.map(function (d) { var n = d.sent + d.received; return n ? blocks[Math.max(1, Math.round(n / max * 8))] : '·'; }).join('');
+    var dname = function (ts) { return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
+    $('stats').innerHTML = '<div class="spark acc">' + spark + '</div><div class="axis"><span>' + dname(hst.days[0].day) + '</span><span>today</span></div>' +
+      '<dl class="kv" style="margin-top:1em"><dt>sent</dt><dd>' + hst.sent + '</dd><dt>received</dt><dd>' + hst.received + '</dd><dt>chats</dt><dd>' + hst.chats + '</dd>' +
+      (hst.top.length ? '<dt>busiest</dt><dd>' + hst.top.map(function (x) { return esc(x.key) + ' <span class="dim">' + x.n + '</span>'; }).join(', ') + '</dd>' : '') + '</dl>';
+
+    // activity
+    var kinds = { warn: 'warn', err: 'err', ok: 'ok', event: 'acc', net: 'dim', call: 'acc2' };
+    $('log').innerHTML = S.activity.length ? S.activity.slice(0, 25).map(function (a) {
+      return '<li><span class="dim">' + time(a.ts) + '</span><span class="' + (kinds[a.kind] || '') + '">' + esc(a.text) + '</span></li>';
+    }).join('') : '<li class="dim">Nothing yet.</li>';
+
+    // calls
+    $('calls').innerHTML = S.calls.length ? '<ul class="plain">' + S.calls.slice().reverse().map(function (x) {
+      var len = x.started ? Math.round(((x.ended || Date.now()) - x.started) / 1000) : 0;
+      var st = x.state === 'live' ? '<span class="ok">● live ' + Math.floor(len / 60) + ':' + String(len % 60).padStart(2, '0') + '</span>' : '<span class="dim">' + esc(x.state === 'ended' ? (x.reason || 'ended') : x.state) + '</span>';
+      return '<li>' + (x.dir === 'out' ? '↗' : '↙') + ' ' + esc(x.peer) + (x.video ? ' <span class="dim">video</span>' : '') + '  ' + st +
+        (x.route && x.route.remote ? '<br><span class="dim">   ' + esc(x.route.kind) + ' · ' + esc(x.route.remote) + (x.route.rtt != null ? ' · ' + x.route.rtt + ' ms' : '') + '</span>' : '') +
+        ' <span class="dim">' + ago(x.made) + '</span></li>';
+    }).join('') + '</ul>' : '<p class="dim">No calls yet. In gossip, open a chat and type <b>/call</b>.</p>';
+
+    drawMap();
+  }
+
+  var failures = 0;
+  function load() {
+    fetch(C.api).then(function (r) { return r.json(); }).then(function (s) {
+      failures = 0;
+      S = s;
+      render();
+    }).catch(function () {
+      if (++failures > 2) $('status').innerHTML = '<span class="err">●</span> gossip was closed';
+    });
+  }
+  load();
+  setInterval(load, 2000);
+  setInterval(function () { tick++; drawMap(); }, 140);
+})();
+</script>
+</body>
+</html>

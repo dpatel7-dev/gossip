@@ -29,7 +29,7 @@ function fits(out = process.stdout) {
   return (out.columns || 80) >= 46 && (out.rows || 24) >= 12;
 }
 
-function run(app, { firstRun = false, notice = null } = {}) {
+function run(app, { firstRun = false, notice = null, startup = null } = {}) {
   return new Promise((resolve) => {
     const out = process.stdout;
     const inp = process.stdin;
@@ -58,6 +58,8 @@ function run(app, { firstRun = false, notice = null } = {}) {
     let focused = true;
     let focusKnown = false; // some terminals never say
     let booting = false;
+    let typedAt = 0;
+    let typingNow = false;
     const pet = { scene: null, pose: null, frames: null, at: 0, total: 0, timer: null }; // Pebble, in the corner
 
     const host = () => {
@@ -252,12 +254,21 @@ function run(app, { firstRun = false, notice = null } = {}) {
       return R.label(sel) + Th.dim(`${n ? ` · ${n} ${n === 1 ? 'person' : 'people'}` : ''}${chat && chat.private ? ' · invite-only' : ''}${chat && chat.owner === app.me ? ' · yours' : ''}`);
     }
 
+    function callText(c) {
+      if (c.dir === 'in' && c.state === 'ringing') return `${c.peer} is calling${c.video ? ' (video)' : ''} · enter answers · esc declines`;
+      if (c.state === 'calling') return `calling ${c.peer}… · /hangup`;
+      if (c.state === 'connecting') return `connecting to ${c.peer}… · /hangup`;
+      const s = Math.floor((Date.now() - c.started) / 1000);
+      return `● on a call with ${c.peer} ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} · /hangup`;
+    }
+
     function hintLine(w) {
       const typing = app.typingText();
       const flashing = flash && flash.until > Date.now();
       const right = statusText();
       const rw = A.vwidth(right);
-      const options = flashing ? [flash.text] : typing ? [typing]
+      const call = app.calls && app.calls.current;
+      const options = flashing ? [flash.text] : call ? [callText(call)] : typing ? [typing]
         : menu.active ? ['']
           : scroll ? ['pgdn or esc for the newest messages']
             : ['↑↓ chats · tab menu · enter send · pgup/pgdn scroll', '↑↓ chats · tab menu · enter send', 'tab menu', ''];
@@ -402,6 +413,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
     function petLines() {
       if (pet.frames) {
         let t = Date.now() - pet.at;
+        if (t >= pet.total && pet.loop && pet.loop()) { // keep going (still typing, still ringing)
+          pet.at = Date.now() - (t % pet.total);
+          t = Date.now() - pet.at;
+        }
         for (const f of pet.frames) {
           if (t < f.ms) return f.lines;
           t -= f.ms;
@@ -420,9 +435,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
       pet.timer = null;
     }
 
-    function react(scene) {
+    function react(scene, loop = null) {
       if (closed || prefs.val('mascot') === 'off') return;
       pet.pose = scene;
+      pet.loop = loop;
       if (!prefs.on('mascot.animate')) { schedule(); return; }
       const now = Date.now();
       if (pet.frames && pet.scene === scene && now - pet.at < pet.total - 200) return; // already at it
@@ -481,6 +497,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     const ctx = {
       app, shell: true, quit, play, view: 'full',
       goMini() { finish({ switch: 'mini' }); },
+      restart() { finish({ restart: true }); },
       noTarget: 'Pick someone on the left first (↑ ↓), or press Tab to add a person.',
       switchView(view) {
         prefs.set(app.vault, 'view', view);
@@ -493,10 +510,12 @@ function run(app, { firstRun = false, notice = null } = {}) {
     function submit() {
       const text = ed.text;
       if (!text.trim()) {
+        if (app.calls && app.calls.ringing) { app.calls.answer().catch((e) => app.say(e.message, 'err')); return; }
         if (cursor && cursor.startsWith('a:')) act(cursor);
         return;
       }
       if (stage) stage.stop();
+      typingNow = false; // (sending makes Pebble dance anyway)
       ed.clear();
       scroll = 0;
       handleInput(ctx, text).catch((e) => app.say(e.message || String(e), 'err'));
@@ -529,7 +548,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
         else if (name === 'tab') ed.insert('  ');
         else if (printable(str)) ed.insert(str);
       } else if (name === 'escape') {
-        if (stage) stage.stop(); else if (ed.text) ed.clear(); else scroll = 0;
+        if (stage) stage.stop();
+        else if (ed.text) ed.clear();
+        else if (app.calls && app.calls.ringing) app.calls.decline().catch((e) => app.say(e.message, 'err'));
+        else scroll = 0;
       } else if (key.ctrl) {
         switch (name) {
           case 'c': ctrlC(); break;
@@ -570,7 +592,12 @@ function run(app, { firstRun = false, notice = null } = {}) {
       }
       if (closed) return;
       if (ed.text !== before && ed.text && sel && !'/@#'.includes(ed.text[0])) app.typingPing();
-      if (ed.text !== before && ed.text) react('laptop');
+      if (ed.text !== before && ed.text) {
+        // Pebble types along while you type, and dances when you stop
+        typedAt = Date.now();
+        typingNow = true;
+        react('laptop', () => typingNow && Date.now() - typedAt < 1300);
+      }
       schedule();
     }
 
@@ -620,6 +647,11 @@ function run(app, { firstRun = false, notice = null } = {}) {
     // ── wiring ──────────────────────────────────────────────────────────────
 
     hook(app, 'line', onLine);
+    if (app.calls) {
+      hook(app.calls, 'ring', (c) => react('phone', () => app.calls.ringing === c));
+      hook(app.calls, 'change', schedule);
+    }
+    if (startup) app.once('synced', () => handleInput(ctx, '/' + startup).catch((e) => app.say(e.message || String(e), 'err')));
     hook(app, 'change', () => {
       if (booting) { cache = null; schedule(); return; } // still saying hello
       if (app.target && app.target !== sel) open(app.target);
@@ -671,7 +703,11 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     const ticker = setInterval(() => {
       app.tick();
-      if (pet.frames && Date.now() - pet.at > pet.total) petRest();
+      if (typingNow && Date.now() - typedAt > 1300) {
+        typingNow = false;
+        react('dance');
+      }
+      if (pet.frames && Date.now() - pet.at > pet.total && !(pet.loop && pet.loop())) petRest();
       if (flash && flash.until <= Date.now()) flash = null;
       schedule();
     }, 250);

@@ -170,19 +170,22 @@ async function ensureAccount(app) {
  * Open the chat. There are two looks - the full chat screen and the classic
  * scrolling prompt - and you can hop between them from the menu.
  */
-async function live({ view = '', app = null, notice = null, firstRun = null } = {}) {
+async function live({ view = '', app = null, notice = null, firstRun = null, startup = null } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     die('The chat is interactive - run `gossip` directly in a terminal. For scripts, use `gossip check` or `gossip squawk`.');
   }
   app = app || makeApp('live', { shell: true });
   if (firstRun === null) firstRun = await ensureAccount(app);
+  if (!app.calls) app.calls = new (require('./call').Calls)(app);
   view = view || prefs.val('view');
   checkForUpdates();
   notice = notice || require('./update').news(prefs.val('update'));
+  let restart = false;
   let last = view === 'mini' ? null : view; // where Esc in the mini chat goes back to
   for (;;) {
     if (view === 'mini') {
       const r = await require('./mini').run(app, { back: last });
+      if (r && r.restart) { restart = true; break; }
       if (!r || !r.switch) break;
       view = r.switch;
       continue;
@@ -191,13 +194,28 @@ async function live({ view = '', app = null, notice = null, firstRun = null } = 
     const screen = require('./screen');
     const full = view === 'full' && screen.fits();
     if (view === 'full' && !full) notice = notice || 'This window is too small for the full chat screen - here is the classic look instead.';
-    const result = await (full ? screen : require('./shitty')).run(app, { firstRun, notice });
+    const result = await (full ? screen : require('./shitty')).run(app, { firstRun, notice, startup });
+    startup = null;
+    if (result && result.restart) { restart = true; break; }
     if (!result || !result.switch) break;
     view = result.switch;
     firstRun = false;
     notice = null;
   }
+  if (app.calls) app.calls.close();
+  if (app.web) app.web.close();
   await app.closeGracefully();
+  if (restart) {
+    // Start again in a fresh process (which switches to a newly downloaded version first).
+    const { spawn } = require('child_process');
+    process.on('SIGINT', () => {}); // Ctrl+C belongs to the new one now
+    const child = spawn(process.execPath, [process.argv[1]], { stdio: 'inherit' });
+    const code = await new Promise((resolve) => {
+      child.on('exit', (c) => resolve(c || 0));
+      child.on('error', () => resolve(1));
+    });
+    process.exit(code);
+  }
 }
 
 async function check() {
@@ -543,6 +561,8 @@ async function main(argv) {
   if (word === 'uninstall' || word === 'delete') return uninstall(rest);
   if (word === 'nearby') return nearby(rest, view);
   if (word === 'mini' || word === 'corner') return live({ view: 'mini' });
+  if (word === 'call' || word === 'video') return live({ view, startup: [word, ...rest].join(' ') });
+  if (word === 'dashboard' || word === 'dash') return live({ view, startup: 'dashboard' });
   if (word === '__update') return require('./update').check(rest[0] === 'notify' ? 'notify' : 'auto').then(() => {}, () => {});
   if (word === 'check') return check();
   if (word === 'listen') return listen(rest);

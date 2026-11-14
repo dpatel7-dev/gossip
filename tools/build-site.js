@@ -10,21 +10,8 @@ const path = require('path');
 const M = require('../src/mascot');
 
 const root = path.join(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'src', 'mascot.js'), 'utf8');
-const ink = {};
-for (const m of source.matchAll(/^ {2}(\w): \{ rgb: \[(\d+), (\d+), (\d+)\]/gm)) {
-  ink[m[1]] = '#' + [m[2], m[3], m[4]].map((n) => Number(n).toString(16).padStart(2, '0')).join('');
-}
-const grids = [];
-const seen = new Map();
-const scenes = {};
-for (const name of M.SCENE_NAMES) {
-  scenes[name] = M.SCENES[name].frames.map((f) => {
-    const flat = f.grid.join('');
-    if (!seen.has(flat)) { seen.set(flat, grids.length); grids.push(flat); }
-    return [seen.get(flat), f.ms || 150];
-  });
-}
+const { ink, grids, scenes } = M.pixels();
+
 // the colour themes, for the "try a theme" buttons
 const Th = require('../src/theme');
 const themes = {};

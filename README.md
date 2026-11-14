@@ -186,6 +186,10 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 ## More things it can do
 
 ```sh
+/call maya                  # (inside a chat) voice call, in your browser; /video maya for video
+/answer  /decline  /hangup  # (inside a chat) or just Enter / Esc while it rings
+/dashboard                  # (inside a chat) every connection, who can read what, activity
+/update  then  /restart     # (inside a chat) get the newest version without leaving
 gossip mini                 # a tiny chat for the corner of your screen, with quick replies
 gossip rename newname       # change your username; chats, servers and contacts come along
 gossip security             # is anything wrong? (connection, changed keys, other sign-ins)

@@ -87,7 +87,9 @@ function run(app, { back = null } = {}) {
       const pw = A.vwidth(to) + 1;
       const lay = ed.layout(Math.max(6, W - pw - 1), 1);
       lines.push(' ' + to + lay.lines[0]);
-      const hint = flash && flash.until > Date.now() ? flash.text : (app.typingText() || `tab: switch · enter: send · esc: ${back ? 'full chat' : 'quit'}`);
+      const call = app.calls && app.calls.current;
+      const callLine = call ? (call.state === 'ringing' ? `${call.peer} is calling · enter answers` : `${call.state === 'live' ? '● call with' : 'calling'} ${call.peer} · /hangup`) : null;
+      const hint = flash && flash.until > Date.now() ? flash.text : (callLine || app.typingText() || `tab: switch · enter: send · esc: ${back ? 'full chat' : 'quit'}`);
       lines.push(' ' + Th.dim(A.ellipsis(hint, W - 2)));
       let buf = '\x1b[?2026h\x1b[?25l\x1b[H';
       for (let y = 0; y < lines.length; y++) buf += `\x1b[${y + 1};1H\x1b[2K${lines[y]}${A.RESET}`;
@@ -117,7 +119,10 @@ function run(app, { back = null } = {}) {
       resolve(result);
     }
 
-    const ctx = { app, shell: true, quit: finish, play: () => Promise.resolve(), view: 'mini', noTarget: 'Press Tab to pick who to write to.' };
+    const ctx = {
+      app, shell: true, quit: finish, play: () => Promise.resolve(), view: 'mini', noTarget: 'Press Tab to pick who to write to.',
+      restart() { result = { restart: true }; finish(); },
+    };
     const printable = (s) => typeof s === 'string' && s.length > 0 && !/[\x00-\x1f\x7f]/.test(s);
 
     function onKey(str, key) {
@@ -135,6 +140,7 @@ function run(app, { back = null } = {}) {
       else if (key.ctrl && name === 'w') ed.deleteWord();
       else if (name === 'return') {
         const text = ed.text;
+        if (!text.trim() && app.calls && app.calls.ringing) app.calls.answer().catch((e) => app.say(e.message, 'err'));
         if (text.trim()) {
           ed.clear();
           handleInput(ctx, text).catch((e) => app.say(e.message || String(e), 'err'));

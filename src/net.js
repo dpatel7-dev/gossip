@@ -386,6 +386,7 @@ class HttpLink extends EventEmitter {
         this._agent = new lib.Agent({ keepAlive: true, maxSockets: 4 });
       }
       const data = Buffer.from(JSON.stringify(body));
+      this._bytesOut = (this._bytesOut || 0) + data.length;
       const fail = (e) => reject(Object.assign(err('disconnected', typeof e === 'string' ? e : friendlyNetError(e)), { net: true }));
       const req = lib.request(u, {
         method: 'POST', agent: this._agent, timeout,
@@ -393,8 +394,10 @@ class HttpLink extends EventEmitter {
       }, (res) => {
         const chunks = [];
         let size = 0;
+        this._sock = res.socket || this._sock;
         res.on('data', (c) => {
           size += c.length;
+          this._bytesIn = (this._bytesIn || 0) + c.length;
           if (size > P.LIMITS.frame * 8) req.destroy(new Error('the reply was too large'));
           else chunks.push(c);
         });
@@ -581,4 +584,38 @@ function probeHttp(url, timeout = 8000) {
   });
 }
 
-module.exports = { Link, HttpLink, makeLink, probeHttp, friendlyNetError };
+/** What a network connection looks like, for the dashboard. */
+function describeSocket(sock) {
+  if (!sock) return null;
+  const out = {
+    remote: sock.remoteAddress ? `${String(sock.remoteAddress).replace(/^::ffff:/, '')}:${sock.remotePort}` : null,
+    bytesIn: sock.bytesRead || 0, bytesOut: sock.bytesWritten || 0, tls: null,
+  };
+  if (sock.encrypted && typeof sock.getCipher === 'function') {
+    let cert = null;
+    let cipher = {};
+    try { cert = sock.getPeerCertificate(); } catch { /* none */ }
+    try { cipher = sock.getCipher() || {}; } catch { /* none */ }
+    out.tls = {
+      protocol: typeof sock.getProtocol === 'function' ? sock.getProtocol() : null,
+      cipher: cipher.standardName || cipher.name || null,
+      verified: !!sock.authorized,
+      subject: cert && cert.subject ? cert.subject.CN || null : null,
+      issuer: cert && cert.issuer ? cert.issuer.O || cert.issuer.CN || null : null,
+      validTo: cert && cert.valid_to ? cert.valid_to : null,
+    };
+  }
+  return out;
+}
+
+Link.prototype.transport = function transport() {
+  return describeSocket(this.conn && this.conn.socket);
+};
+
+HttpLink.prototype.transport = function transport() {
+  const t = describeSocket(this._sock);
+  if (t) { t.bytesIn = this._bytesIn || 0; t.bytesOut = this._bytesOut || 0; }
+  return t;
+};
+
+module.exports = { Link, HttpLink, makeLink, probeHttp, friendlyNetError, describeSocket };

@@ -400,4 +400,22 @@ function still(name, { mode = 'rgb', markStyle = null, style = null } = {}) {
   return draw(sceneOf(name, style).rest, mode, markStyle);
 }
 
-module.exports = { SCENES, MINI, SCENE_NAMES, WIDTH, HEIGHT, pickScene, draw, play, still, styleNow, setBackdrop };
+/** Pebble's smooth pictures as plain data, for drawing on a web page. */
+function pixels() {
+  const hex = (rgb) => '#' + rgb.map((n) => n.toString(16).padStart(2, '0')).join('');
+  const ink = {};
+  for (const [ch, v] of Object.entries(INK)) ink[ch] = hex(v.rgb);
+  const grids = [];
+  const seen = new Map();
+  const scenes = {};
+  for (const name of Object.keys(SCENES)) {
+    scenes[name] = SCENES[name].frames.map((f) => {
+      const flat = f.grid.join('');
+      if (!seen.has(flat)) { seen.set(flat, grids.length); grids.push(flat); }
+      return [seen.get(flat), f.ms || 150];
+    });
+  }
+  return { ink, grids, scenes };
+}
+
+module.exports = { pixels, SCENES, MINI, SCENE_NAMES, WIDTH, HEIGHT, pickScene, draw, play, still, styleNow, setBackdrop };

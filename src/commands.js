@@ -235,6 +235,106 @@ const COMMANDS = [
     },
   },
   {
+    name: 'call', aliases: ['ring', 'phone'], args: '[who] [video]', complete: 'target', group: 'Chat', net: true,
+    desc: 'Call someone - voice, or add "video". The call opens in your browser.',
+    async run(ctx, args) {
+      const { app } = ctx;
+      if (!app.calls) throw new Error('Calls happen inside the chat: type gossip, then /call there.');
+      const video = args.some((a) => /^(video|cam|camera)$/i.test(a));
+      const who = args.filter((a) => !/^(video|cam|camera)$/i.test(a))[0];
+      const key = who ? await resolveTarget(app, who) : app.target;
+      if (!key) throw usage(ctx, this);
+      if (key[0] === '#') throw new Error('Calls are one-to-one for now - call a person, not a server.');
+      needOnline(app);
+      if (key !== app.target) app.setTarget(key);
+      await app.calls.start(key.slice(1), { video });
+    },
+  },
+  {
+    name: 'video', aliases: ['facetime', 'videocall'], args: '[who]', complete: 'target', group: 'Chat', net: true,
+    desc: 'Video call someone (in your browser)',
+    async run(ctx, args) {
+      return find('call').run(ctx, [...args, 'video']);
+    },
+  },
+  {
+    name: 'answer', aliases: ['pickup', 'accept'], group: 'Chat', net: true,
+    desc: 'Answer the call that is ringing (or press Enter on an empty line)',
+    async run(ctx) {
+      if (!ctx.app.calls) throw new Error("Nobody's calling right now.");
+      await ctx.app.calls.answer();
+    },
+  },
+  {
+    name: 'decline', aliases: ['reject'], group: 'Chat',
+    desc: 'Turn down the call that is ringing',
+    async run(ctx) {
+      if (!ctx.app.calls) throw new Error("Nobody's calling right now.");
+      await ctx.app.calls.decline();
+    },
+  },
+  {
+    name: 'hangup', aliases: ['endcall', 'hang'], group: 'Chat',
+    desc: 'End the call',
+    async run(ctx) {
+      if (!ctx.app.calls) throw new Error("You're not in a call.");
+      await ctx.app.calls.hangup();
+    },
+  },
+  {
+    name: 'dashboard', aliases: ['dash', 'connections', 'web'], group: 'Safety',
+    desc: 'Open the dashboard in your browser: every connection, who can read what, activity',
+    async run(ctx) {
+      const { app } = ctx;
+      if (!ctx.shell || !app.identity) throw new Error('The dashboard works while the chat is open: type gossip, then /dashboard.');
+      const r = await require('./dashboard').open(app);
+      app.say(r.opened ? `The dashboard is open in your browser. (Address: ${r.url})` : `Open this in your browser: ${r.url}`, 'ok');
+    },
+  },
+  {
+    name: 'update', aliases: ['upgrade'], group: 'Setup',
+    desc: 'Get the newest gossip without leaving the chat',
+    async run(ctx) {
+      const { app } = ctx;
+      const fs = require('fs');
+      const path = require('path');
+      const U = require('./update');
+      const cfg = U.config();
+      if (!cfg) throw new Error('No GitHub repo is set in gossip.config.json, so there is nowhere to update from.');
+      const where = U.install();
+      const have = U.currentVersion();
+      const ready = (version) => app.say(`gossip v${version} is ready. ${ctx.restart ? `Switch to it now with ${app.hint('restart')} - you come straight back here.` : 'It takes over the next time you start gossip.'}`, 'ok');
+      let staged = null;
+      try { staged = fs.readFileSync(path.join(where.next, '.ready'), 'utf8').trim(); } catch { /* nothing waiting */ }
+      if (staged && U.newer(staged, have)) return ready(staged);
+      app.say('Checking for a new version…', 'sys');
+      const version = await U.latest(cfg);
+      if (!U.newer(version, have)) return app.say(`You have the newest gossip (v${have}).`, 'ok');
+      if (!where.managed) return app.say(`gossip v${version} is out (you have v${have}). This copy wasn't set up by the installer, so update it the way you got it (for a git clone: git pull).`, 'warn');
+      app.say(`Downloading v${version}…`, 'sys');
+      await new Promise((r) => setImmediate(r)); // (let that line show before the download starts)
+      await U.stage(version, cfg, where);
+      return ready(version);
+    },
+  },
+  {
+    name: 'restart', aliases: ['reload'], group: 'Setup', where: 'shell',
+    desc: 'Restart gossip (switches to a new version if one is ready)',
+    async run(ctx) {
+      if (!ctx.restart) throw new Error('Nothing to restart here.');
+      if (ctx.app.calls && ctx.app.calls.current) throw new Error(`You're in a call - ${ctx.app.hint('hangup')} first.`);
+      ctx.restart();
+    },
+  },
+  {
+    name: 'mini', aliases: ['corner', 'small'], group: 'Setup', where: 'shell',
+    desc: 'Shrink to a tiny chat for the corner of your screen',
+    async run(ctx) {
+      if (!ctx.goMini) throw new Error('This is already the small one.');
+      ctx.goMini();
+    },
+  },
+  {
     name: 'rename', aliases: ['username', 'nick'], args: '<new username>', need: 1, group: 'Setup', net: true,
     desc: 'Change your username (your chats, servers and contacts come with you)',
     async run(ctx, args) {
@@ -868,10 +968,26 @@ async function runCommand(ctx, line) {
  * A line typed into the chat: a /command, "@maya hi", "#server hi", or just a
  * message for whoever you're talking to.
  */
+const OUTSIDE = {
+  uninstall: 'gossip uninstall removes the program you are in. Leave first (Ctrl+D), then run it.',
+  delete: 'gossip delete removes the program you are in. Leave first (Ctrl+D), then run it.',
+  serve: 'gossip serve runs a relay and needs its own terminal window.',
+  nearby: 'Nearby mode starts fresh: leave (Ctrl+D), then run gossip nearby.',
+  check: "You're already seeing every message here.",
+  listen: "You're already seeing every message here.",
+};
+
 async function handleInput(ctx, raw) {
   const { app } = ctx;
   const literal = raw[0] === ' '; // a leading space means "send this exactly as typed"
   const text = raw.trim();
+  // Typed a shell command out of habit ("gossip update")? Run it right here.
+  const shellish = !literal && /^gossip\s+([a-z-]+)(?:\s+([\s\S]*))?$/i.exec(text);
+  if (shellish) {
+    const word = shellish[1].toLowerCase();
+    if (OUTSIDE[word]) return app.say(OUTSIDE[word], 'sys');
+    if (find(word)) return runCommand(ctx, word + (shellish[2] ? ' ' + shellish[2] : ''));
+  }
   if (!literal && text[0] === '/' && text[1] !== '/') return runCommand(ctx, text.slice(1));
   if (!literal) {
     const m = /^([@#][A-Za-z0-9_-]+)(?:\s+([\s\S]+))?$/.exec(text);

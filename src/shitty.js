@@ -19,7 +19,7 @@ const { Editor } = require('./editor');
 const { suggest, handleInput, replay, pretty } = require('./commands');
 const { Menu } = require('./menu');
 
-function run(app, { firstRun = false, notice = null } = {}) {
+function run(app, { firstRun = false, notice = null, startup = null } = {}) {
   return new Promise((resolve) => {
     const out = process.stdout;
     const inp = process.stdin;
@@ -74,7 +74,9 @@ function run(app, { firstRun = false, notice = null } = {}) {
       } else right = Th.dim('not connected');
       // the left side shrinks first, so who-you-are and the connection stay readable
       const rw = A.vwidth(right);
-      const options = flashing ? [flash.text] : typing ? [typing] : menu.active || quiet ? [''] : ['tab opens the menu · /help for commands', 'tab opens the menu', 'tab: menu', ''];
+      const call = app.calls && app.calls.current;
+      const callLine = call ? (call.dir === 'in' && call.state === 'ringing' ? `${call.peer} is calling · /answer or /decline` : `${call.state === 'live' ? '● on a call with' : call.state === 'calling' ? 'calling' : 'connecting to'} ${call.peer} · /hangup`) : null;
+      const options = flashing ? [flash.text] : callLine ? [callLine] : typing ? [typing] : menu.active || quiet ? [''] : ['tab opens the menu · /help for commands', 'tab opens the menu', 'tab: menu', ''];
       const text = options.find((t) => 2 + A.width(t) + 2 + rw <= w);
       const left = '  ' + Th.dim(text === undefined ? A.ellipsis(options[0], Math.max(0, w - rw - 4)) : text);
       const lw = A.vwidth(left);
@@ -358,6 +360,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     const ctx = {
       app, shell: true, quit, play, view: 'classic',
       goMini() { result = { switch: 'mini' }; quit(); },
+      restart() { result = { restart: true }; quit(); },
       noTarget: 'Who to? Press Tab to pick someone, or start with @username - for example: @maya hey',
       switchView(view) {
         prefs.set(app.vault, 'view', view);
@@ -518,6 +521,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     // ── wiring ────────────────────────────────────────────────────────────
 
     hook(app, 'line', show);
+    if (startup) app.once('synced', () => handle('/' + startup).catch((e) => app.say(e.message || String(e), 'err')));
     hook(app, 'line', (item) => {
       if (item.t === 'msg' && item.msg.from !== app.me && !app.muted(item.key) && Date.now() - lastKeyAt > 10000) {
         require('./notify').message(prefs.val('notify'), item.key, item.msg);

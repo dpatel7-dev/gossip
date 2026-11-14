@@ -40,6 +40,8 @@ function root(m) {
       { label: 'Make it yours', desc: 'colours, penguin, layout, every setting', run: () => looks },
       { label: 'This chat', desc: 'mute, search, save to a file', run: () => thisChat },
       ...(m.ctx.goMini ? [{ label: 'Shrink to the corner', desc: 'a tiny chat with quick replies while you work', run: () => m.ctx.goMini() }] : []),
+      { label: 'Dashboard', desc: 'connections and who can see what, in your browser', run: run(m, 'dashboard') },
+      { label: 'Check for updates', desc: 'without leaving the chat', run: run(m, 'update') },
       { label: "What's new", desc: 'update notes', run: run(m, 'changelog') },
       { label: 'Help', desc: 'keys and commands', run: run(m, 'help') },
       { label: 'Leave gossip', run: () => m.ctx.quit() },
@@ -65,6 +67,10 @@ function thisChat(m) {
   const key = app.target;
   const items = [];
   if (key) {
+    if (key[0] === '@' && m.app.calls) {
+      items.push({ label: `Call ${key.slice(1)}`, desc: 'voice, in your browser', run: run(m, 'call') });
+      items.push({ label: `Video call ${key.slice(1)}`, desc: 'in your browser', run: run(m, 'video') });
+    }
     items.push({ label: app.muted(key) ? 'Unmute this chat' : 'Mute this chat', desc: 'no sound, no unread count', run: run(m, 'mute') });
     items.push({ label: 'Save this chat to a file', desc: 'a plain text file in the current folder', run: run(m, 'export') });
     if (m.ctx.view !== 'full') items.push({ label: 'Show older messages', run: run(m, 'recap 50') });

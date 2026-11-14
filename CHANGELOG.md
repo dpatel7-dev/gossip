@@ -2,6 +2,13 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.6.0
+- Calls: `/call maya` for voice, `/video maya` for video, also in the menu under "This chat". The call opens in your browser in gossip's own look, with mute, camera and screen sharing. Sound and video go straight between your computers, end-to-end encrypted.
+- Answer with Enter (or `/answer`), turn it down with Esc (or `/decline`), end it with `/hangup`. Only people in your contacts can call you (`gossip config calls everyone` or `off` to change that).
+- `/dashboard` opens a live page in your browser: every connection gossip makes, who is signed in as you (with a button to sign the others out), who can read each chat, security checks, your activity and calls.
+- Update without leaving: `/update`, then `/restart` brings you straight back on the new version. Typing a command the shell way inside the chat (like `gossip update`) now just works.
+- Pebble types along while you type and dances when you stop.
+
 ## 0.5.1
 - Fixed Pebble not reacting to what you do. Pebble now also stays in the pose afterwards (typing, phone or dance) until something else happens.
 

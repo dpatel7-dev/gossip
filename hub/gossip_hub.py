@@ -294,6 +294,10 @@ class Hub:
         self.db = sqlite3.connect(self.db_file, timeout=15, isolation_level=None, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        try:  # databases made by older versions don't have this column yet
+            self.db.execute('ALTER TABLE sessions ADD COLUMN ip TEXT')
+        except sqlite3.OperationalError:
+            pass
 
     # ── small helpers ────────────────────────────────────────────────────────
 
@@ -519,8 +523,8 @@ class Hub:
 
         mode = m.get('mode') if m.get('mode') in ('live', 'peek', 'post') else 'live'
         token = secrets.token_urlsafe(32)
-        self.q('INSERT INTO sessions(token, name, mode, seen, made, tokens, refilled, last_typing) VALUES(?,?,?,?,?,?,?,0)',
-               token, name, mode, now, now, 40.0, now)
+        self.q('INSERT INTO sessions(token, name, mode, seen, made, tokens, refilled, last_typing, ip) VALUES(?,?,?,?,?,?,?,0,?)',
+               token, name, mode, now, now, 40.0, now, str(ip)[:64])
         mine = self.q('SELECT * FROM sessions WHERE name=? ORDER BY made', name).fetchall()
         for old in mine[:max(0, len(mine) - 8)]:
             self._close(old, now)
@@ -547,6 +551,11 @@ class Hub:
         return {'name': name, 'created': created, 'rooms': rooms, 'invites': invites,
                 'blocked': self._blocked_list(name), 'waiting': len(waiting), 'notices': notices,
                 'token': token, 'events': events, 'others': others}
+
+    def h_sessions(self, s, m, now):
+        """Every place your account is open right now (for the dashboard)."""
+        rows = self.q('SELECT token, mode, made, ip FROM sessions WHERE name=? ORDER BY made', s['name']).fetchall()
+        return {'sessions': [{'you': r['token'] == s['token'], 'mode': r['mode'], 'since': r['made'], 'ip': r['ip'] or ''} for r in rows]}
 
     def h_ping(self, s, m, now):
         return {}

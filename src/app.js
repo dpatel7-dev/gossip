@@ -91,6 +91,10 @@ class App extends EventEmitter {
     this.presence = new Map(); // contact name -> online?
     this.renames = new Map(); // an old username -> the new one (people who renamed)
     this.otherSessions = 0; // other places this account is open right now
+    this.activity = []; // what happened, for the dashboard
+    this.counts = { sent: 0, received: 0 };
+    this.onlineSince = 0;
+    this.reconnects = 0;
     this.chats = new Map(); // '@name' | '#room' -> conversation state
     this.invites = new Map(); // room -> invited by
     this.knownRooms = [];
@@ -149,7 +153,33 @@ class App extends EventEmitter {
 
   // ── things to show ────────────────────────────────────────────────────────
 
+  /** Keep a short record of what happened (the dashboard's Activity list). */
+  log(kind, text) {
+    this.activity.push({ ts: Date.now(), kind, text: String(text).slice(0, 300) });
+    if (this.activity.length > 150) this.activity.splice(0, 50);
+  }
+
+  /** How long a round trip to the relay takes, in milliseconds. */
+  async ping() {
+    const t = Date.now();
+    await this.link.request('ping', {}, 8000);
+    return Date.now() - t;
+  }
+
+  /** Send call details to someone (encrypted like a message, but not shown or saved as one). */
+  async signal(name, data) {
+    if (!this.link || !this.link.online) throw fail('offline', "You're offline");
+    const peer = await this.peerFor(name);
+    if (peer.changed) throw fail('key_changed', `${name}'s security key changed - check ${this.hint(`verify ${name}`)} first`);
+    const env = e2e.seal({
+      identity: this.identity, from: this.me, conv: P.dmConv(this.me, peer.name),
+      recipients: [{ name: peer.name, dhPub: peer.dhPub }], payload: { call: data }, id: e2e.randomId(), ts: Date.now(),
+    });
+    await this.link.request('send', { env });
+  }
+
   say(text, kind = 'sys') {
+    if (kind !== 'sys') this.log(kind, text);
     this.emit('line', { t: 'note', kind, text });
   }
 
@@ -255,7 +285,15 @@ class App extends EventEmitter {
   _wire(link) {
     this.link = link;
     link.on('state', (state, detail) => {
+      const was = this.conn && this.conn.state;
       this.conn = { state, detail };
+      if (state === 'online' && was !== 'online') {
+        if (this.onlineSince) this.reconnects++;
+        this.onlineSince = Date.now();
+        this.log('net', `Connected to ${link.host}`);
+      } else if (state === 'offline' && was === 'online') {
+        this.log('net', `Lost the connection to ${link.host}${detail && detail.message ? ` (${detail.message})` : ''}`);
+      }
       if (state === 'connecting') {
         this._synced = new Promise((r) => { this._release = r; });
         this._caughtUp = false;
@@ -578,6 +616,7 @@ class App extends EventEmitter {
           if (!job.env) job.env = await this._seal(job);
           await this.link.request('send', { env: job.env });
           this.outbox.shift();
+          this.counts.sent++;
           this._status(job, 'sent');
           job.resolve(job.msg);
         } catch (e) {
@@ -810,8 +849,14 @@ class App extends EventEmitter {
         return;
       }
 
+      // call details (ring, answer, hang up): handled by the call code, never shown or saved
+      if (payload && payload.call && typeof payload.call === 'object' && chat.kind === 'dm') {
+        this.emit('signal', { from, data: payload.call, ts: env.ts });
+        return;
+      }
       const text = cleanText(payload && payload.text);
       if (!text) return;
+      this.counts.received++;
       const ts = Number.isSafeInteger(m.ts) ? m.ts : env.ts;
       const msg = { id: env.id, from, ts, text };
       this.vault.appendHistory(key, msg);

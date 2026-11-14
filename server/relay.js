@@ -204,6 +204,7 @@ class Relay {
     const now = Date.now();
     const s = {
       conn, ip,
+      made: now,
       name: null,
       mode: 'live',
       nonce: e2e.b64(crypto.randomBytes(24)),
@@ -460,6 +461,16 @@ const HANDLERS = {
   },
 
   ping: { open: true, free: true, run(s, m) { this._ok(s, m, {}); } },
+
+  // Every place your account is open right now (for the dashboard).
+  sessions: {
+    run(s, m) {
+      const list = [...this._sessions(s.name)].map((x) => ({
+        you: x === s, mode: x.mode, since: x.made || null, ip: String(x.ip || '').replace(/^::ffff:/, ''),
+      }));
+      this._ok(s, m, { sessions: list });
+    },
+  },
 
   lookup: {
     run(s, m) {
