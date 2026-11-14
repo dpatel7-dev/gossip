@@ -357,6 +357,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     const ctx = {
       app, shell: true, quit, play, view: 'classic',
+      goMini() { result = { switch: 'mini' }; quit(); },
       noTarget: 'Who to? Press Tab to pick someone, or start with @username - for example: @maya hey',
       switchView(view) {
         prefs.set(app.vault, 'view', view);

@@ -77,6 +77,19 @@ class PeerBook {
    * Change one person's record. `fn` gets a copy of the current record (or
    * undefined) and returns the new one, or null to forget them.
    */
+  /** Someone changed their username: keep everything we know about them under the new one. */
+  rename(from, to) {
+    this.sync();
+    const old = this.map.get(from);
+    if (!old) return null;
+    const next = { ...(this.map.get(to) || {}), ...old, name: to };
+    this.map.delete(from);
+    this.map.set(to, next);
+    writeJson(this.file, [...this.map.values()]);
+    this.stamp = stampOf(this.file);
+    return next;
+  }
+
   update(name, fn) {
     this.sync();
     const cur = this.map.get(name);
@@ -139,6 +152,19 @@ class Vault {
   _historyFile(key) {
     const kind = key[0] === '#' ? 'room' : 'dm';
     return path.join(this.historyDir, `${kind}-${key.slice(1)}.jsonl`);
+  }
+
+  /** Move a chat's saved messages to a new name (joining them on if that chat already exists). */
+  renameHistory(from, to) {
+    const a = this._historyFile(from);
+    const b = this._historyFile(to);
+    try {
+      if (!fs.existsSync(a)) return;
+      if (fs.existsSync(b)) {
+        fs.appendFileSync(b, fs.readFileSync(a));
+        fs.rmSync(a);
+      } else fs.renameSync(a, b);
+    } catch { /* the old file simply stays */ }
   }
 
   appendHistory(key, record) {

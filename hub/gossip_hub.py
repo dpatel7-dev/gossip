@@ -264,6 +264,7 @@ CREATE INDEX IF NOT EXISTS watch_name ON watch(name);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT, body TEXT);
 CREATE INDEX IF NOT EXISTS events_token ON events(token);
 CREATE TABLE IF NOT EXISTS nonces(nonce TEXT PRIMARY KEY, ts INTEGER);
+CREATE TABLE IF NOT EXISTS aliases(old TEXT PRIMARY KEY, new TEXT);
 """
 
 
@@ -497,6 +498,12 @@ class Hub:
             if user['dh_pub'] != bundle['dhPub']:
                 self.q('UPDATE users SET dh_pub=?, dh_sig=? WHERE name=?', bundle['dhPub'], bundle['dhSig'], name)
         else:
+            moved = self.one('SELECT new FROM aliases WHERE old=?', name)  # a name someone used to have stays theirs
+            if moved:
+                owner = self._user(moved['new'])
+                if owner and owner['sign_pub'] == bundle['signPub']:
+                    raise Err('renamed', 'This account is now called "%s"' % moved['new'])
+                raise Err('name_taken', 'The username "%s" is already taken' % name)
             if not m.get('create'):
                 raise Err('unknown_user', 'There\'s no account called "%s" here' % name)
             if not self.signups:
@@ -518,6 +525,11 @@ class Hub:
         for old in mine[:max(0, len(mine) - 8)]:
             self._close(old, now)
 
+        # Tell your open chats when the account is opened somewhere else as well.
+        others = self.one("SELECT COUNT(*) AS n FROM sessions WHERE name=? AND mode='live' AND token<>?", name, token)['n']
+        if mode == 'live' and others:
+            self._push_to(name, {'t': 'session', 'event': 'new', 'n': others + 1}, token)
+
         rooms = [self._room_info(r) for r in self.q(
             'SELECT r.* FROM rooms r JOIN members m ON m.room=r.name WHERE m.name=? ORDER BY r.name', name)]
         invites = [{'room': r['room'], 'by': r['by']} for r in self.q('SELECT room, by FROM invited WHERE name=?', name)]
@@ -534,7 +546,7 @@ class Hub:
             events.append({'t': 'caught_up', 'n': len(waiting)})
         return {'name': name, 'created': created, 'rooms': rooms, 'invites': invites,
                 'blocked': self._blocked_list(name), 'waiting': len(waiting), 'notices': notices,
-                'token': token, 'events': events}
+                'token': token, 'events': events, 'others': others}
 
     def h_ping(self, s, m, now):
         return {}
@@ -551,9 +563,56 @@ class Hub:
 
     def h_lookup(self, s, m, now):
         u = self._user(m.get('name'))
+        if not u and valid_name(m.get('name')):  # someone who changed their username is still found under the old one
+            moved = self.one('SELECT new FROM aliases WHERE old=?', m['name'])
+            u = self._user(moved['new']) if moved else None
         if not u:
             raise Err('no_such_user', 'There\'s no user called "%s"' % str(m.get('name'))[:24])
         return {'user': self._pub(u)}
+
+    def h_rename(self, s, m, now):
+        """Change your username. Everything moves with you; the old name stays yours."""
+        old = s['name']
+        name = m.get('name')
+        if not valid_name(name):
+            raise Err('bad_name', NAME_HELP)
+        if name == old:
+            raise Err('bad_name', 'That is already your username')
+        holder = self.one('SELECT new FROM aliases WHERE old=?', name)
+        if self._user(name) or (holder and holder['new'] != old):
+            raise Err('name_taken', 'The username "%s" is already taken' % name)
+        if self.one('SELECT 1 FROM queue WHERE name=?', old):
+            raise Err('busy', 'Messages are still on their way to you - try again in a moment')
+        audience = set(r['name'] for r in self.q(
+            'SELECT DISTINCT b.name AS name FROM members a JOIN members b ON a.room=b.room WHERE a.name=?', old))
+        audience |= set(r['name'] for r in self.q(
+            'SELECT DISTINCT x.name AS name FROM watch w JOIN sessions x ON x.token=w.token WHERE w.name=?', old))
+        for sql in (
+                'UPDATE users SET name=? WHERE name=?', 'UPDATE blocks SET owner=? WHERE owner=?',
+                'UPDATE OR REPLACE blocks SET name=? WHERE name=?', 'UPDATE rooms SET owner=? WHERE owner=?',
+                'UPDATE members SET name=? WHERE name=?', 'UPDATE OR REPLACE invited SET name=? WHERE name=?',
+                'UPDATE invited SET by=? WHERE by=?', 'UPDATE OR REPLACE banned SET name=? WHERE name=?',
+                'UPDATE notices SET name=? WHERE name=?', 'UPDATE sessions SET name=? WHERE name=?',
+                'UPDATE OR REPLACE watch SET name=? WHERE name=?', 'UPDATE aliases SET new=? WHERE new=?'):
+            self.q(sql, name, old)
+        self.q('DELETE FROM aliases WHERE old=?', name)
+        self.q('INSERT OR REPLACE INTO aliases(old, new) VALUES(?,?)', old, name)
+        note = {'t': 'renamed', 'from': old, 'to': name, 'user': self._pub(self._user(name))}
+        audience.discard(old)
+        audience.discard(name)
+        for n in audience:
+            self._push_to(n, note)
+        self._push_to(name, note, s['token'])  # your other terminals
+        return {'name': name}
+
+    def h_signout(self, s, m, now):
+        """Close every other place this account is open."""
+        closed = 0
+        for x in self._sessions(s['name']):
+            if x['token'] != s['token']:
+                self._push(x['token'], {'t': 'signed_out'})
+                closed += 1
+        return {'closed': closed}
 
     def h_send(self, s, m, now):
         env = m.get('env')

@@ -186,6 +186,10 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 ## More things it can do
 
 ```sh
+gossip mini                 # a tiny chat for the corner of your screen, with quick replies
+gossip rename newname       # change your username; chats, servers and contacts come along
+gossip security             # is anything wrong? (connection, changed keys, other sign-ins)
+gossip signout              # close your account in every other window
 /me waves                   # (inside a chat) an action: * dhruv waves
 :fire: :thumbsup: :party:   # (inside a chat) typed words become emoji
 gossip config notify off    # stop desktop pop-ups (or: preview, on)

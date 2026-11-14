@@ -25,6 +25,7 @@ class Db {
     this.rooms = new Map(); // name -> { name, private, owner, created, members:Set, invited:Set, banned:Set }
     this.queues = new Map(); // name -> [{ b: bodyKey, k: wrappedKey }]
     this.bodies = new Map(); // bodyKey -> { env, ts, refs, dm }
+    this.aliases = new Map(); // an old username -> what that account is called now
     this._dirty = false;
     this._timer = null;
     this._writing = false;
@@ -51,6 +52,7 @@ class Db {
     }
     for (const [k, v] of data.bodies || []) this.bodies.set(k, v);
     for (const [k, v] of data.queues || []) this.queues.set(k, v);
+    for (const [k, v] of data.aliases || []) this.aliases.set(k, v);
   }
 
   _snapshot() {
@@ -59,6 +61,7 @@ class Db {
       users: [...this.users.values()].map((u) => ({ ...u, blocked: [...u.blocked], invites: [...u.invites] })),
       rooms: [...this.rooms.values()].map((r) => ({ ...r, members: [...r.members], invited: [...r.invited], banned: [...r.banned] })),
       bodies: [...this.bodies],
+      aliases: [...this.aliases],
       queues: [...this.queues].filter(([, q]) => q.length),
     });
   }
@@ -405,6 +408,12 @@ const HANDLERS = {
           user.dhSig = bundle.dhSig;
         }
       } else {
+        const moved = this.db.aliases.get(name); // a name someone used to have stays theirs
+        if (moved) {
+          const owner = this.db.users.get(moved);
+          if (owner && owner.signPub === bundle.signPub) return this._err(s, m, 'renamed', `This account is now called "${moved}"`);
+          return this._err(s, m, 'name_taken', `The username "${name}" is already taken`);
+        }
         if (!m.create) return this._err(s, m, 'unknown_user', `There's no account called "${name}" on this relay`);
         if (!this.opts.signups) return this._err(s, m, 'signups_closed', "This relay isn't taking new accounts");
         if (!this._allowSignup(s.ip)) {
@@ -424,6 +433,11 @@ const HANDLERS = {
       if (!set) this.online.set(name, (set = new Set()));
       set.add(s);
       if (set.size > 8) set.values().next().value.conn.close(4002, 'too many sessions');
+      // Tell your open chats when the account is opened somewhere else as well.
+      const others = [...set].filter((x) => x !== s && x.mode === 'live').length;
+      if (s.mode === 'live' && others) {
+        for (const x of set) if (x !== s && x.mode !== 'post') this._push(x, { t: 'session', event: 'new', n: others + 1 });
+      }
 
       const rooms = [];
       for (const r of this.db.rooms.values()) if (r.members.has(name)) rooms.push(this._roomInfo(r));
@@ -433,6 +447,7 @@ const HANDLERS = {
         invites: [...user.invites].map(([room, by]) => ({ room, by })),
         blocked: [...user.blocked],
         waiting: waiting.length,
+        others,
         // things that happened while you were away (e.g. removed from a server)
         notices: s.mode === 'post' ? [] : user.notices.splice(0),
       });
@@ -448,7 +463,8 @@ const HANDLERS = {
 
   lookup: {
     run(s, m) {
-      const u = P.validName(m.name) ? this.db.users.get(m.name) : null;
+      // (someone who changed their username is still found under the old one)
+      const u = P.validName(m.name) ? this.db.users.get(m.name) || this.db.users.get(this.db.aliases.get(m.name)) : null;
       if (!u) return this._err(s, m, 'no_such_user', `There's no user called "${String(m.name).slice(0, 24)}"`);
       this._ok(s, m, { user: this._pub(u) });
     },
@@ -618,6 +634,79 @@ const HANDLERS = {
       this._roomCast(room, note, s.name);
       this._pushTo(s.name, note, s);
       this._ok(s, m, {});
+    },
+  },
+
+  // Change your username. Everything you're part of moves with you, and the old
+  // name stays yours so nobody can pick it up and pose as you.
+  rename: {
+    run(s, m) {
+      const old = s.name;
+      const name = m.name;
+      if (!P.validName(name)) return this._err(s, m, 'bad_name', P.NAME_HELP);
+      if (name === old) return this._err(s, m, 'bad_name', 'That is already your username');
+      const holder = this.db.aliases.get(name);
+      if (this.db.users.has(name) || (holder && holder !== old)) return this._err(s, m, 'name_taken', `The username "${name}" is already taken`);
+      if ((this.db.queues.get(old) || []).length) return this._err(s, m, 'busy', 'Messages are still on their way to you - try again in a moment');
+      const user = this.db.users.get(old);
+      this.db.users.delete(old);
+      user.name = name;
+      this.db.users.set(name, user);
+      const swap = (set) => {
+        if (!set.has(old)) return;
+        const list = [...set].map((n) => (n === old ? name : n)); // (keeps the order people joined in)
+        set.clear();
+        for (const n of list) set.add(n);
+      };
+      const audience = new Set();
+      for (const r of this.db.rooms.values()) {
+        if (r.members.has(old)) for (const n of r.members) audience.add(n);
+        swap(r.members);
+        swap(r.invited);
+        swap(r.banned);
+        if (r.owner === old) r.owner = name;
+      }
+      for (const u of this.db.users.values()) {
+        swap(u.blocked);
+        for (const [room, by] of u.invites) if (by === old) u.invites.set(room, name);
+      }
+      for (const [a, b] of this.db.aliases) if (b === old) this.db.aliases.set(a, name);
+      this.db.aliases.delete(name);
+      this.db.aliases.set(old, name);
+      this.db.queues.delete(old);
+      const mine = this.online.get(old);
+      this.online.delete(old);
+      if (mine) {
+        this.online.set(name, mine);
+        for (const x of mine) x.name = name;
+      }
+      for (const set of this.online.values()) {
+        for (const x of set) {
+          if (x.watch && x.watch.has(old)) { x.watch.delete(old); x.watch.add(name); audience.add(x.name); }
+        }
+      }
+      this.db.touch();
+      const note = { t: 'renamed', from: old, to: name, user: this._pub(user) };
+      audience.delete(old);
+      audience.delete(name);
+      for (const n of audience) this._pushTo(n, note);
+      this._pushTo(name, note, s); // your other terminals
+      this.log(`${old} is now ${name}`);
+      this._ok(s, m, { name });
+    },
+  },
+
+  // Close every other place this account is open.
+  signout: {
+    run(s, m) {
+      let closed = 0;
+      for (const x of [...this._sessions(s.name)]) {
+        if (x === s) continue;
+        this._push(x, { t: 'signed_out' });
+        x.conn.close(4003, 'signed out');
+        closed++;
+      }
+      this._ok(s, m, { closed });
     },
   },
 

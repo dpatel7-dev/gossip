@@ -283,7 +283,9 @@ function styleNow() {
     want = require('./prefs').val('mascot.style');
   } catch { /* settings not loaded: auto */ }
   if (want === 'smooth' || want === 'blocky') return want;
-  return process.env.TERM_PROGRAM === 'Apple_Terminal' ? 'blocky' : 'smooth';
+  // macOS Terminal draws the detailed penguin cleanly only when it has told us its
+  // background colour (see setBackdrop); until then the blocky one is the safe choice.
+  return process.env.TERM_PROGRAM === 'Apple_Terminal' && !backdrop ? 'blocky' : 'smooth';
 }
 
 const sceneOf = (name, style) => {
@@ -328,6 +330,11 @@ function pickScene(want) {
 
 // ── drawing ─────────────────────────────────────────────────────────────────
 
+let backdrop = null; // the terminal's background colour, once known: [r, g, b]
+function setBackdrop(rgb) {
+  backdrop = Array.isArray(rgb) && rgb.length === 3 ? rgb : null;
+}
+
 function cell(top, bottom, mode) {
   const t = top === '.' ? null : top;
   const b = bottom === '.' ? null : bottom;
@@ -347,7 +354,11 @@ function cell(top, bottom, mode) {
   //   - anything touching the top of the cell is drawn as background, with the
   //     lower-half block ▄ (which does sit flush with the bottom) on top of it.
   if (t && b) return t === b ? A.paint(' ', { bg: ink(t) }) : A.paint('▄', { fg: ink(b), bg: ink(t) });
-  return t ? A.paint('▀', { fg: ink(t) }) : A.paint('▄', { fg: ink(b) });
+  // Top pixel only. If the terminal told us its background colour, fill the cell
+  // with the pixel's colour and draw the empty lower half in that background -
+  // seamless everywhere. Otherwise fall back to an upper-half block.
+  if (t) return backdrop && mode === 'rgb' ? A.paint('▄', { fg: backdrop, bg: ink(t) }) : A.paint('▀', { fg: ink(t) });
+  return A.paint('▄', { fg: ink(b) });
 }
 
 /**
@@ -389,4 +400,4 @@ function still(name, { mode = 'rgb', markStyle = null, style = null } = {}) {
   return draw(sceneOf(name, style).rest, mode, markStyle);
 }
 
-module.exports = { SCENES, MINI, SCENE_NAMES, WIDTH, HEIGHT, pickScene, draw, play, still, styleNow };
+module.exports = { SCENES, MINI, SCENE_NAMES, WIDTH, HEIGHT, pickScene, draw, play, still, styleNow, setBackdrop };

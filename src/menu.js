@@ -39,6 +39,7 @@ function root(m) {
       { label: 'People', desc: 'contacts, blocking, safety numbers', run: () => peoplePage },
       { label: 'Make it yours', desc: 'colours, penguin, layout, every setting', run: () => looks },
       { label: 'This chat', desc: 'mute, search, save to a file', run: () => thisChat },
+      ...(m.ctx.goMini ? [{ label: 'Shrink to the corner', desc: 'a tiny chat with quick replies while you work', run: () => m.ctx.goMini() }] : []),
       { label: "What's new", desc: 'update notes', run: run(m, 'changelog') },
       { label: 'Help', desc: 'keys and commands', run: run(m, 'help') },
       { label: 'Leave gossip', run: () => m.ctx.quit() },
@@ -188,6 +189,9 @@ function peoplePage(m) {
       { label: 'Block someone', desc: 'their messages stop arriving', run: pick(m, 'Block someone', known, 'block', 'Nobody to block yet.', true) },
       { label: 'Unblock someone', run: pick(m, 'Unblock someone', app.settings.blocked.slice(), 'unblock', 'Nobody is blocked.') },
       { label: 'Who am I?', desc: app.me, run: run(m, 'whoami') },
+      { label: 'Change my username', desc: app.me, run: ask('Change my username', 'New username', P.NAME_HELP + '. Your chats, servers and contacts come with you.', (t) => m.run('rename ' + P.cleanName(t))) },
+      { label: 'Security check', desc: 'is anything wrong?', run: run(m, 'security') },
+      { label: 'Sign out my other windows', run: confirm('Close your account everywhere else?', 'Yes, sign the others out', run(m, 'signout')) },
     ],
   };
 }

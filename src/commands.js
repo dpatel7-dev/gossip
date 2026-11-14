@@ -69,7 +69,7 @@ async function resolveTarget(app, raw) {
   if (s === app.me) throw new Error("That's you - pick someone else.");
   if (!P.validName(s)) throw new Error(`"${raw}" isn't a username or a server you're in.`);
   try {
-    await app.peerFor(s);
+    s = (await app.peerFor(s)).name; // (their current name, if they changed it)
   } catch (e) {
     if (e.code === 'no_such_user') {
       throw new Error(kind === 'dm' ? `There's no user called ${s}.` : `There's no user called ${s}, and you're not in a server by that name.`);
@@ -235,6 +235,61 @@ const COMMANDS = [
     },
   },
   {
+    name: 'rename', aliases: ['username', 'nick'], args: '<new username>', need: 1, group: 'Setup', net: true,
+    desc: 'Change your username (your chats, servers and contacts come with you)',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const name = P.cleanName(args[0]);
+      if (!P.validName(name)) throw new Error(P.NAME_HELP);
+      needOnline(app);
+      const old = app.me;
+      await app.link.request('rename', { name });
+      app._iAm(name);
+      app.emit('change');
+      app.say(`You're ${name} now. People you talk to are switched over automatically, and nobody else can take "${old}".`, 'ok');
+    },
+  },
+  {
+    name: 'signout', aliases: ['logout-others'], group: 'Safety', net: true,
+    desc: 'Close your account everywhere except this window',
+    async run(ctx) {
+      const { app } = ctx;
+      needOnline(app);
+      const res = await app.link.request('signout', {});
+      app.otherSessions = 0;
+      app.say(res.closed ? `Signed out ${plural(res.closed, 'other window')}. If that wasn't you, your keys are known to someone else: the only real fix is a fresh account (${app.hint('uninstall')} with "delete everything", then install again).` : 'This is the only place your account is open.', res.closed ? 'warn' : 'ok');
+    },
+  },
+  {
+    name: 'security', aliases: ['safety', 'shield'], group: 'Safety',
+    desc: 'Check whether anything looks wrong, and what gossip is doing about it',
+    async run(ctx) {
+      const { app } = ctx;
+      const url = app.serverUrl || '';
+      const local = /^(ws|http)s?:\/\/(localhost|127\.|\[::1\])/i.test(url);
+      const encrypted = /^(wss|https):/i.test(url) || local;
+      const peers = app.peers.values().filter((p) => p.name !== app.me);
+      const changed = peers.filter((p) => p.changed);
+      const unverified = app.contacts().filter((p) => !p.verified && !p.changed);
+      const good = (t) => [['  ✓ ', 'ok'], [t, null]];
+      const bad = (t) => [['  ! ', 'warn'], [t, 'warn']];
+      const rows = [[['Security check', 'head']]];
+      rows.push(good('Messages are end-to-end encrypted: only the people in a chat can read them.'));
+      rows.push(!url ? bad('Not connected to anything yet.') : encrypted
+        ? good(local ? 'The relay is on this computer, so nothing travels over a network.' : `The connection to ${app.link ? app.link.host : url} is encrypted too.`)
+        : bad(`The connection to ${url} is not encrypted. Nobody can read messages, but someone on your network could see who you talk to. To refuse such connections: ${app.hint('config security strict')}`));
+      rows.push(changed.length
+        ? bad(`${changed.map((p) => p.name).join(', ')}: security key changed. Messages to them are on hold until you ${app.hint('verify ' + changed[0].name)} and ${app.hint('trust ' + changed[0].name)}.`)
+        : good("Nobody's security key has changed unexpectedly."));
+      rows.push(app.otherSessions
+        ? bad(`Your account is open in ${app.otherSessions + 1} places. If one isn't you: ${app.hint('signout')}`)
+        : good('Your account is only open here.'));
+      if (unverified.length) rows.push([['  · ', 'dim'], [`${plural(unverified.length, 'contact')} not yet verified (${unverified.slice(0, 4).map((p) => p.name).join(', ')}). Compare safety numbers in person or on a call: ${app.hint('verify ' + unverified[0].name)}`, 'dim']]);
+      rows.push([['  · ', 'dim'], ['gossip watches for these all the time and warns you the moment one changes. No program can see someone silently copying network traffic - which is why the messages are encrypted in the first place.', 'dim']]);
+      app.rows(rows);
+    },
+  },
+  {
     name: 'changelog', aliases: ['news', 'whatsnew', 'updates'], args: '[all]', group: 'Setup',
     desc: "See what's new in each version",
     async run(ctx, args) {
@@ -279,7 +334,7 @@ const COMMANDS = [
     desc: 'Add someone to your contacts',
     async run(ctx, args) {
       const { app } = ctx;
-      const name = userArg(app, args[0]);
+      let name = userArg(app, args[0]);
       if (!name) throw usage(ctx, this);
       needOnline(app);
       let peer;
@@ -288,6 +343,7 @@ const COMMANDS = [
       } catch (e) {
         throw e.code === 'no_such_user' ? new Error(`There's no user called ${name}.`) : e;
       }
+      name = peer.name; // (their current name, if they changed it)
       if (peer.contact) return app.say(`${name} is already in your contacts.`, 'sys');
       app.peers.update(name, (cur) => ({ ...(cur || peer), contact: true }));
       await app._watch().catch(() => {});
@@ -485,9 +541,10 @@ const COMMANDS = [
     desc: 'Check that nobody is listening in',
     async run(ctx, args) {
       const { app } = ctx;
-      const name = args[0] ? userArg(app, args[0]) : app.target && app.target[0] === '@' ? app.target.slice(1) : null;
+      let name = args[0] ? userArg(app, args[0]) : app.target && app.target[0] === '@' ? app.target.slice(1) : null;
       if (!name) throw usage(ctx, this);
       const peer = await app.peerFor(name);
+      name = peer.name;
       if ((args[1] || '').toLowerCase() === 'ok') {
         if (peer.changed) throw new Error(`${name}'s key changed. Accept it first with ${app.hint(`trust ${name}`)}`);
         app.peers.update(name, (cur) => ({ ...(cur || peer), verified: true }));
@@ -775,6 +832,7 @@ function helpRows(shell, view) {
   } else {
     rows.push([['More', 'head']]);
     rows.push([['  ' + 'gossip --classic'.padEnd(w), null], ['Open the chat in the classic scrolling look (or: --full)', 'dim']]);
+    rows.push([['  ' + 'gossip mini'.padEnd(w), null], ['A tiny chat for the corner of your screen, with quick replies', 'dim']]);
     rows.push([['  ' + 'gossip nearby'.padEnd(w), null], ['Chat with people on the same Wi-Fi or cable - no internet needed', 'dim']]);
     rows.push([['  ' + 'gossip serve'.padEnd(w), null], ['Run your own relay (gossip serve --help)', 'dim']]);
     rows.push([['  ' + 'gossip uninstall'.padEnd(w), null], ['Remove gossip from this computer (also: gossip delete)', 'dim']]);

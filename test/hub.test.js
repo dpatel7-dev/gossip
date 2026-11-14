@@ -178,6 +178,13 @@ test('website: servers, invites, kicking, presence, typing and blocking', opts, 
   await until(() => ben.chat('#club').owner === 'ben', 'ben to learn he owns it');
   await assert.rejects(runCommand(ann.ctx, 'kick ben club'), /Only the owner/);
 
+  // changing a username carries everything along
+  await runCommand(cat.ctx, 'rename kitty');
+  assert.equal(cat.me, 'kitty');
+  await cat.send('@ann', 'new name, same me');
+  await until(() => msgs(ann).some((t) => /kitty: new name, same me/.test(t)), 'a message under the new name');
+  await assert.rejects(open(hub, tmp()).register('cat'), /taken/);
+
   // presence is mutual and arrives without asking
   await runCommand(ann.ctx, 'add ben');
   await runCommand(ben.ctx, 'add ann');
@@ -189,10 +196,11 @@ test('website: servers, invites, kicking, presence, typing and blocking', opts, 
   await until(() => ann.presence.get('ben') === false, 'ben to look offline');
 
   // a blocked person's messages never arrive
-  await runCommand(ann.ctx, 'block cat');
+  await runCommand(ann.ctx, 'block kitty');
+  const before = msgs(ann, '@kitty').length;
   await cat.send('@ann', 'hello?');
   await sleep(1300);
-  assert.equal(msgs(ann, '@cat').length, 0);
+  assert.equal(msgs(ann, '@kitty').length, before);
   await ann.closeGracefully();
   await cat.closeGracefully();
   assert.equal(hub.errors(), '');

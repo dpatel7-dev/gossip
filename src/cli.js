@@ -179,7 +179,15 @@ async function live({ view = '', app = null, notice = null, firstRun = null } = 
   view = view || prefs.val('view');
   checkForUpdates();
   notice = notice || require('./update').news(prefs.val('update'));
+  let last = view === 'mini' ? null : view; // where Esc in the mini chat goes back to
   for (;;) {
+    if (view === 'mini') {
+      const r = await require('./mini').run(app, { back: last });
+      if (!r || !r.switch) break;
+      view = r.switch;
+      continue;
+    }
+    last = view;
     const screen = require('./screen');
     const full = view === 'full' && screen.fits();
     if (view === 'full' && !full) notice = notice || 'This window is too small for the full chat screen - here is the classic look instead.';
@@ -534,6 +542,7 @@ async function main(argv) {
   if (word === 'update') return update();
   if (word === 'uninstall' || word === 'delete') return uninstall(rest);
   if (word === 'nearby') return nearby(rest, view);
+  if (word === 'mini' || word === 'corner') return live({ view: 'mini' });
   if (word === '__update') return require('./update').check(rest[0] === 'notify' ? 'notify' : 'auto').then(() => {}, () => {});
   if (word === 'check') return check();
   if (word === 'listen') return listen(rest);

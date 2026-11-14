@@ -7,7 +7,7 @@ const ws = require('./ws');
 const e2e = require('./e2e');
 const P = require('./proto');
 
-const FATAL = new Set(['name_taken', 'bad_name', 'bad_keys', 'bad_proof', 'unknown_user', 'signup_limit', 'signups_closed']);
+const FATAL = new Set(['renamed', 'name_taken', 'bad_name', 'bad_keys', 'bad_proof', 'unknown_user', 'signup_limit', 'signups_closed']);
 
 function friendlyNetError(err) {
   const code = err && err.code;
@@ -274,8 +274,8 @@ class Link extends EventEmitter {
 const http = require('http');
 const https = require('https');
 
-const POLL_BUSY = 1000; // someone is talking
-const POLL_WARM = 2500; // talked in the last few minutes
+const POLL_BUSY = 600; // someone is talking
+const POLL_WARM = 2000; // talked in the last few minutes
 const POLL_IDLE = 5000;
 
 class HttpLink extends EventEmitter {

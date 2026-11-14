@@ -215,3 +215,82 @@ test('penguin: the blocky style uses nothing but whole coloured cells', () => {
     A.setLevel(before);
   }
 });
+
+test('accounts: change your username; friends follow; a second sign-in is noticed', async () => {
+  const relay = await new Relay({ port: 0, dataDir: tmp(), quiet: true }).start();
+  const ann = await person(relay, 'ann');
+  const ben = await person(relay, 'ben');
+  try {
+    await runCommand(ann.ctx, 'add ben');
+    await runCommand(ben.ctx, 'add ann');
+    await runCommand(ann.ctx, 'create den');
+    await runCommand(ben.ctx, 'join den');
+    await ben.send('@ann', 'before the change');
+    await until(() => ann.shown.some((i) => i.t === 'msg'), 'the first message');
+    await sleep(150); // let the "got it" reach the relay
+
+    await assert.rejects(runCommand(ann.ctx, 'rename ben'), /taken/);
+    await runCommand(ann.ctx, 'rename annie');
+    assert.equal(ann.me, 'annie');
+    assert.equal(new Vault(ann.dir).loadIdentity().name, 'annie');
+    await until(() => notes(ben).some((t) => /ann is now called annie/.test(t)), 'ben to hear about it');
+    assert.equal(ben.peers.get('ann'), undefined);
+    assert.equal(ben.peers.get('annie').contact, true, 'still a contact, under the new name');
+    assert.deepEqual(new Vault(ben.dir).conversations().filter((k) => k[0] === '@'), ['@annie'], 'the saved chat moved too');
+    assert.equal(ben.chat('#den').owner, 'annie');
+
+    await ben.send('@annie', 'after the change');
+    await until(() => ann.shown.filter((i) => i.t === 'msg').length === 2, 'a message to the new name');
+    await ann.send('@ben', 'still me');
+    await until(() => ben.shown.some((i) => i.t === 'msg' && i.key === '@annie' && i.msg.text === 'still me'), 'a message from the new name');
+
+    // the old name can't be taken by anyone else, and still leads to the same person
+    await assert.rejects(new App({ vault: new Vault(tmp()), server: ann.serverUrl }).register('ann'), /taken/);
+    const cat = await person(relay, 'cat');
+    try {
+      await runCommand(cat.ctx, 'add ann');
+      assert.deepEqual(cat.peers.values().map((x) => `${x.name}:${x.contact}`), ['annie:true'], 'adding the old name finds them under the new one');
+    } finally {
+      await cat.closeGracefully();
+    }
+
+    // the same account opened somewhere else
+    const second = new App({ vault: new Vault(ann.dir), server: ann.serverUrl, shell: true });
+    second.shown = [];
+    second.on('line', (i) => second.shown.push(i));
+    await second.connect();
+    try {
+      assert.equal(second.me, 'annie');
+      await until(() => notes(ann).some((t) => /just opened in 2 places/.test(t)), 'the first window to be warned');
+      assert.ok(notes(second).some((t) => /open in 2 places/.test(t)));
+      ann.shown.length = 0;
+      await runCommand(ann.ctx, 'security');
+      assert.match(table(ann), /Your account is open in 2 places/);
+      await runCommand(ann.ctx, 'signout');
+      await until(() => notes(second).some((t) => /signed out/.test(t)), 'the other window to be closed');
+      await until(() => second.conn.state !== 'online', 'it to go offline');
+    } finally {
+      await second.closeGracefully();
+    }
+  } finally {
+    await ann.closeGracefully();
+    await ben.closeGracefully();
+    await relay.stop();
+  }
+});
+
+test('security: "strict" refuses a connection that is not encrypted', async () => {
+  const dir = tmp();
+  const app = new App({ vault: new Vault(dir), server: 'ws://203.0.113.9:8787', shell: true });
+  app.createLocalIdentity('zed');
+  const prefs = require('../src/prefs');
+  prefs.set(app.vault, 'security', 'strict');
+  app.settings = app.vault.loadSettings();
+  try {
+    await assert.rejects(app.connect({ retry: false }), /isn't an encrypted connection/);
+  } finally {
+    prefs.reset(app.vault, 'security');
+    prefs.use(new Vault(tmp()).loadSettings());
+    app.close();
+  }
+});

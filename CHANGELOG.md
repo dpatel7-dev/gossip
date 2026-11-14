@@ -2,6 +2,15 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.5.0
+- Change your username: `gossip rename newname`. Your chats, servers and contacts come with you, the people you talk to are switched over automatically, and nobody else can take your old name.
+- `gossip mini`: a tiny chat for the corner of your screen while you work. Messages from every chat scroll by, and replies go to whoever wrote last. Tab picks someone else. Also in the menu as "Shrink to the corner".
+- `gossip security`: checks the connection, anyone whose security key changed, and whether your account is open somewhere else.
+- A warning the moment your account is opened in another place, and `gossip signout` to close the others.
+- `gossip config security strict` refuses any connection that isn't encrypted.
+- Messages through a gossip website arrive faster (it now checks about twice as often while you're chatting).
+- The detailed Pebble now draws cleanly in macOS Terminal when the terminal reports its background colour; gossip falls back to the blocky one when it doesn't.
+
 ## 0.4.2
 - A new blocky Pebble, drawn only with whole coloured squares, so no terminal can stripe it. macOS Terminal gets it automatically; choose yourself with `gossip config mascot.style blocky` or `smooth`.
 - Fixed black notches around Pebble that 0.4.1 introduced in macOS Terminal.

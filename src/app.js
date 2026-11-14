@@ -89,6 +89,8 @@ class App extends EventEmitter {
     this.peers = vault.peers;
 
     this.presence = new Map(); // contact name -> online?
+    this.renames = new Map(); // an old username -> the new one (people who renamed)
+    this.otherSessions = 0; // other places this account is open right now
     this.chats = new Map(); // '@name' | '#room' -> conversation state
     this.invites = new Map(); // room -> invited by
     this.knownRooms = [];
@@ -200,6 +202,11 @@ class App extends EventEmitter {
   connect({ retry = true, timeout = 15000 } = {}) {
     if (!this.identity) return Promise.reject(fail('no_account', 'No account on this computer yet - run `gossip` to make one'));
     if (!this.serverUrl) return Promise.reject(fail('no_server', 'No relay is set - run: gossip relay <address>'));
+    if (prefs.val('security') === 'strict' && /^(ws|http):\/\/(?!localhost|127\.|\[::1\])/i.test(this.serverUrl) && !this.via) {
+      const e = fail('insecure', `${this.serverUrl} isn't an encrypted connection, and your security setting is "strict". Use an https:// or wss:// address, or: ${this.hint('config security normal')}`);
+      this.say(e.message, 'err');
+      return Promise.reject(e);
+    }
     const link = makeLink({ url: this.serverUrl, identity: this.identity, name: this.me, mode: this.mode, retry });
     this._wire(link);
     return new Promise((resolve, reject) => {
@@ -263,12 +270,23 @@ class App extends EventEmitter {
     link.on('ready', (res) => this._onReady(res));
     link.on('push', (m) => this._onPush(m));
     link.on('authfail', (e) => {
+      // renamed from another computer: pick up the new name and carry on
+      const moved = e.code === 'renamed' && /now called "([a-z0-9_-]+)"/.exec(e.message);
+      if (moved && P.validName(moved[1])) {
+        this._iAm(moved[1]);
+        this.say(`You're called ${moved[1]} now (you renamed on another computer).`, 'sys');
+        link.fatal = false;
+        setTimeout(() => link.retryNow(), 50);
+        return;
+      }
       const why = e.code === 'name_taken' ? `the name "${this.me}" belongs to someone else on this relay` : e.message;
       this.say(`Couldn't sign in to ${link.host}: ${why}.`, 'err');
     });
   }
 
   async _onReady(res) {
+    this.otherSessions = Number(res.others) || 0;
+    if (this.mode === 'live' && this.otherSessions) this._sessionWarning(this.otherSessions + 1, false);
     this.syncing = true;
     this._syncError = null;
     this._fresh.clear();
@@ -368,7 +386,15 @@ class App extends EventEmitter {
   pin(user) {
     if (!user || !P.validName(user.name) || !e2e.validBundle(user)) throw fail('bad_keys', 'The server sent invalid keys');
     const keys = { signPub: user.signPub, dhPub: user.dhPub, dhSig: user.dhSig };
-    const p = this.peers.get(user.name);
+    let p = this.peers.get(user.name);
+    if (!p) {
+      // The same key under a name we haven't seen: that's someone we know who renamed.
+      const same = this.peers.values().find((x) => x.signPub === user.signPub && x.name !== user.name && x.name !== this.me);
+      if (same) {
+        this._renamed(same.name, user.name);
+        p = this.peers.get(user.name);
+      }
+    }
     if (!p) {
       return this.peers.update(user.name, (cur) => cur || { name: user.name, ...keys, contact: false, verified: false, since: Date.now() });
     }
@@ -388,7 +414,49 @@ class App extends EventEmitter {
     return p;
   }
 
+  /** This account is open somewhere else too. Fine if that's you; worth knowing if it isn't. */
+  _sessionWarning(n, fresh) {
+    this.say(`${fresh ? 'Your account was just opened' : 'Your account is open'} in ${n} places at once. If that isn't you in another window, someone has your keys: sign them out with ${this.hint('signout')} and see ${this.hint('security')}.`, 'warn');
+    if (fresh && prefs.val('bell') !== 'off') this.emit('bell');
+  }
+
+  /** I changed my own username. */
+  _iAm(name) {
+    this.me = name;
+    this.identity = { ...this.identity, name };
+    this.vault.saveIdentity(this.identity);
+    if (this.link) this.link.name = name;
+  }
+
+  /** Someone else changed theirs: move their contact entry, chat and saved messages along. */
+  _renamed(from, to) {
+    if (from === to || !P.validName(from) || !P.validName(to)) return;
+    this.renames.set(from, to);
+    const had = this.peers.get(from);
+    if (had) this.peers.rename(from, to);
+    this.vault.renameHistory('@' + from, '@' + to);
+    const chat = this.chats.get('@' + from);
+    if (chat) {
+      this.chats.delete('@' + from);
+      if (!this.chats.has('@' + to)) this.chats.set('@' + to, Object.assign(chat, { key: '@' + to, name: to }));
+    }
+    for (const c of this.chats.values()) {
+      if (c.members && c.members.has(from)) { c.members.set(to, c.members.get(from)); c.members.delete(from); }
+      if (c.owner === from) c.owner = to;
+    }
+    if (this.presence.has(from)) { this.presence.set(to, this.presence.get(from)); this.presence.delete(from); }
+    const swap = (list) => (Array.isArray(list) ? list.map((x) => (x === from ? to : x === '@' + from ? '@' + to : x)) : list);
+    this.settings = this.vault.updateSettings((s) => {
+      s.blocked = swap(s.blocked);
+      s.muted = swap(s.muted);
+      if (s.target === '@' + from) s.target = '@' + to;
+    });
+    if (this.target === '@' + from) this.target = '@' + to;
+    if (had) this.say(`${from} is now called ${to}.`, 'event');
+  }
+
   async peerFor(name, { refresh = false } = {}) {
+    if (this.renames.has(name)) name = this.renames.get(name);
     const known = this.peers.get(name);
     if (known && !refresh) return known;
     if (!this.link || !this.link.online) {
@@ -396,6 +464,8 @@ class App extends EventEmitter {
       throw fail('offline', `You're offline, so ${name} can't be looked up right now`);
     }
     const res = await this.link.request('lookup', { name });
+    // asked for an old username: the relay answers with who they are now
+    if (res.user && res.user.name !== name && P.validName(res.user.name)) this._renamed(name, res.user.name);
     return this.pin(res.user);
   }
 
@@ -592,6 +662,29 @@ class App extends EventEmitter {
       case 'room':
         this._onRoomEvent(m);
         break;
+      case 'renamed':
+        if (P.validName(m.from) && P.validName(m.to)) {
+          if (m.from === this.me) {
+            this._iAm(m.to);
+            this.say(`You're called ${m.to} now.`, 'sys');
+          } else {
+            try {
+              this._renamed(m.from, m.to);
+              if (m.user && m.user.name === m.to) this.pin(m.user);
+            } catch { /* odd keys: leave things as they were */ }
+          }
+          this.emit('change');
+        }
+        break;
+      case 'session':
+        this.otherSessions = Math.max(1, (Number(m.n) || 2) - 1);
+        this._sessionWarning(this.otherSessions + 1, true);
+        break;
+      case 'signed_out':
+        this.say('This window was signed out from another one of yours.', 'warn');
+        if (this.link) this.link.stop();
+        this.emit('change');
+        break;
       default:
     }
   }
@@ -660,11 +753,18 @@ class App extends EventEmitter {
     let ack = true;
     try {
       const c = P.parseConv(env.conv);
-      const from = env.from;
-      if (from === this.me) return;
+      const sender = env.from;
+      if (sender === this.me) return;
+      // Sent under a name we don't know? Ask who that is - it may be a contact who renamed.
+      if (!this.peers.get(sender) && !this.renames.has(sender) && this.link && this.link.online) {
+        try {
+          await this.peerFor(sender);
+        } catch { /* handled below */ }
+      }
+      const from = this.renames.get(sender) || sender;
       let key;
       if (c.kind === 'dm') {
-        if (env.conv !== P.dmConv(from, this.me)) return;
+        if (env.conv !== P.dmConv(sender, this.me)) return;
         key = '@' + from;
       } else {
         key = '#' + c.room;
@@ -702,7 +802,7 @@ class App extends EventEmitter {
         if (e.code === 'bad_signature') {
           // Has their key changed on the relay? pin() raises the warning if so.
           try {
-            const res = await this.link.request('lookup', { name: from });
+            const res = await this.link.request('lookup', { name: sender });
             this.pin(res.user);
           } catch { /* stay with what we know */ }
         }

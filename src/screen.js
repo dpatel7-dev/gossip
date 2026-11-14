@@ -21,6 +21,7 @@ const pkg = require('../package.json');
 const notify = require('./notify');
 
 const FOCUS_RE = /\x1b\[([IO])/g; // the terminal telling us its window gained / lost focus
+const BG_RE = /\x1b\]11;rgb:([0-9a-f]{2,4})\/([0-9a-f]{2,4})\/([0-9a-f]{2,4})(?:\x07|\x1b\\)/i; // "my background colour is…"
 const MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 /** Is this window big enough for the full screen? */
@@ -465,6 +466,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     const ctx = {
       app, shell: true, quit, play, view: 'full',
+      goMini() { finish({ switch: 'mini' }); },
       noTarget: 'Pick someone on the left first (↑ ↓), or press Tab to add a person.',
       switchView(view) {
         prefs.set(app.vault, 'view', view);
@@ -576,6 +578,13 @@ function run(app, { firstRun = false, notice = null } = {}) {
     function onData(chunk) {
       let text = carry + chunk.toString('utf8');
       carry = '';
+      text = text.replace(BG_RE, (all, r, g, b) => {
+        M.setBackdrop([r, g, b].map((h) => parseInt(h.slice(0, 2), 16)));
+        still = null;
+        prev = [];
+        schedule();
+        return '';
+      });
       text = text.replace(FOCUS_RE, (all, kind) => {
         focusKnown = true;
         focused = kind === 'I';
@@ -623,7 +632,8 @@ function run(app, { firstRun = false, notice = null } = {}) {
     inp.resume();
     hook(inp, 'data', onData);
     hook(out, 'resize', () => { prev = []; cache = null; out.write('\x1b[2J'); schedule(); });
-    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h\x1b[?1004h' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
+    // (\x1b]11;? asks the terminal what its background colour is, for drawing Pebble cleanly)
+    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h\x1b[?1004h\x1b]11;?\x07' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
 
     if (notice) {
       home.push({ t: 'note', kind: 'sys', text: notice });
