@@ -114,6 +114,15 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     await request(ann.web.url(`callapi/${out.id}`), { method: 'POST', body: { t: 'stats', route: { kind: 'direct', remote: '198.51.100.7:5000', proto: 'udp', rtt: 30 } } });
     assert.equal(out.state, 'live');
 
+    // a network hiccup: ben's browser asks for a fresh connection, ann's builds one, ben's answers
+    await request(ben.web.url(`callapi/${inc.id}`), { method: 'POST', body: { t: 'restart' } });
+    await until(() => annEvents.some((e) => e.t === 'restart'), "ann's browser to be asked to reconnect");
+    await request(ann.web.url(`callapi/${out.id}`), { method: 'POST', body: { t: 'reoffer', sdp: 'v=0 fresh-offer' } });
+    await until(() => benEvents.some((e) => e.t === 'reoffer' && e.sdp === 'v=0 fresh-offer'), 'the fresh details to reach ben');
+    await request(ben.web.url(`callapi/${inc.id}`), { method: 'POST', body: { t: 'reanswer', sdp: 'v=0 fresh-answer' } });
+    await until(() => annEvents.some((e) => e.t === 'reanswer' && e.sdp === 'v=0 fresh-answer'), "ben's fresh answer to reach ann");
+    assert.equal(out.state, 'live', 'the call carries on');
+
     // the dashboard sees all of it
     await dashboard.open(ann);
     const snap = JSON.parse((await request(ann.web.url('dashapi'))).text);
@@ -130,6 +139,24 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     await until(() => benEvents.some((e) => e.t === 'end'), "ben's browser to be told");
   } finally {
     for (const e of streams) e.close();
+    for (const a of [ann, ben]) { a.web && a.web.close(); await a.closeGracefully(); }
+    await relay.stop();
+  }
+});
+
+test('calls: a TURN server set on the relay reaches the call page', async () => {
+  const relay = await new Relay({ port: 0, dataDir: tmp(), quiet: true, turn: [{ urls: 'turn:turn.example.org:3478', username: 'u', credential: 'p' }] }).start();
+  const ann = await person(relay, 'ann');
+  const ben = await person(relay, 'ben');
+  try {
+    await runCommand(ann.ctx, 'add ben');
+    await runCommand(ben.ctx, 'add ann');
+    await runCommand(ann.ctx, 'call ben');
+    const page = await request(ann.web.url(`call/${ann.calls.current.id}`));
+    assert.match(page.text, /"urls":"turn:turn\.example\.org:3478","username":"u","credential":"p"/);
+    assert.match(page.text, /stun:stun\.l\.google\.com:19302/);
+    await runCommand(ann.ctx, 'hangup');
+  } finally {
     for (const a of [ann, ben]) { a.web && a.web.close(); await a.closeGracefully(); }
     await relay.stop();
   }

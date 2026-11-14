@@ -57,6 +57,35 @@ That's it. Send friends the link. They paste the install line, type `gossip`, pi
 - **To get a newer gossip onto the site:** open a Bash console, run `cd ~/gossip && git pull`, then press **Reload** on the Web page.
 - **To close sign-ups** once your friends are in: create the file `~/gossip-data/config.json` containing `{"signups": false}` and press Reload. You can also set `"name"` and `"motd"` (a welcome line) there.
 
+### Make calls work on strict networks (optional, recommended)
+
+Calls go straight between two computers. Some school, office and phone networks
+block that, and then a call can't connect. A **TURN server** fixes it by
+passing the (still end-to-end encrypted) call along when a direct path is
+blocked. Metered has a free one:
+
+1. Make a free account at <https://dashboard.metered.ca/signup> and give the app any name.
+2. Open the **TURN Server** page, click **Add Credential**, then **Show ICE Servers Array**. Copy what it shows.
+3. On PythonAnywhere, open the **Files** tab, go to `gossip-data`, and open (or create) `config.json`.
+4. Put the copied list in it under `"turn"`, so the file looks like this (with your own username and credential):
+
+   ```json
+   {
+     "turn": [
+       { "urls": "turn:standard.relay.metered.ca:80", "username": "abc123", "credential": "xyz789" },
+       { "urls": "turn:standard.relay.metered.ca:443", "username": "abc123", "credential": "xyz789" },
+       { "urls": "turns:standard.relay.metered.ca:443?transport=tcp", "username": "abc123", "credential": "xyz789" }
+     ]
+   }
+   ```
+
+5. Click **Save**, then press **Reload** on the **Web** page.
+
+Everyone using your site gets it automatically. It's only used when a direct
+connection fails, so the free allowance goes a long way. (On your own relay:
+`gossip serve --turn "turn:host:3478 username password"`. Just for yourself:
+`gossip config call.turn "turn:host:3478 username password"`.)
+
 ### Make it the default for everyone (optional)
 
 People who install from your page are already connected to it. If you'd also

@@ -2,6 +2,15 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.7.1
+- Much steadier calls. Your voice now gets top priority on the network, with error correction that fills in lost sound instead of leaving gaps; when the connection gets worse, video gives way first.
+- Calls reconnect by themselves after a network hiccup instead of freezing.
+- On a weak connection, your video pauses automatically so your voice stays clear, and comes back when things improve.
+- Hardware video encoding on computers that have it: smoother video, less heat and battery.
+- Signal bars in the call show how good the connection is, and hold space to talk while muted.
+- A tip about headphones when both of you are on the same Wi-Fi (two computers in one room echo, which makes sound cut in and out).
+- Relays and gossip websites can hand out a TURN server, which lets calls through networks that block direct connections (see docs/HOSTING.md).
+
 ## 0.7.0
 - Send files and photos, up to 10 MB, end-to-end encrypted: drag a file into the gossip window and press Enter, or `/file ~/Desktop/photo.png`.
 - Photos show up as real pictures right inside the terminal, for you and for them.

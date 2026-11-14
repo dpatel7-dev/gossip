@@ -462,6 +462,9 @@ const HANDLERS = {
 
   ping: { open: true, free: true, run(s, m) { this._ok(s, m, {}); } },
 
+  // Extra servers that help calls get through strict networks (TURN), if the relay has any.
+  ice: { run(s, m) { this._ok(s, m, { ice: this.opts.turn || [] }); } },
+
   // Every place your account is open right now (for the dashboard).
   sessions: {
     run(s, m) {
@@ -843,6 +846,7 @@ function parseServeArgs(argv) {
   };
   if (/^(off|0|no|false)$/i.test(env.GOSSIP_SIGNUPS || '')) opts.signups = false;
   if (env.GOSSIP_MAX_MEMBERS) opts.maxMembers = Number(env.GOSSIP_MAX_MEMBERS);
+  opts.turn = env.GOSSIP_TURN ? parseTurn(env.GOSSIP_TURN) : [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
@@ -857,6 +861,7 @@ function parseServeArgs(argv) {
     else if (a === '--trust-proxy') opts.trustProxy = true;
     else if (a === '--no-signups') opts.signups = false;
     else if (a === '--max-members') opts.maxMembers = Number(next());
+    else if (a === '--turn') opts.turn.push(...parseTurn(next()));
     else if (a === '--help' || a === '-h') opts.help = true;
     else throw new Error(`Unknown option: ${a}`);
   }
@@ -865,6 +870,22 @@ function parseServeArgs(argv) {
     throw new Error(`--max-members must be a number from 2 to ${P.LIMITS.roomMembers}`);
   }
   return opts;
+}
+
+/**
+ * A TURN server for calls, written as  turn:host:port username password
+ * (several separated by commas), or as JSON in the browser's own format.
+ */
+function parseTurn(text) {
+  const s = String(text || '').trim();
+  if (!s) return [];
+  if (s[0] === '[' || s[0] === '{') {
+    const list = [].concat(JSON.parse(s));
+    return list.filter((x) => x && (typeof x.urls === 'string' || Array.isArray(x.urls)))
+      .map((x) => ({ urls: x.urls, username: x.username ? String(x.username) : undefined, credential: x.credential ? String(x.credential) : undefined }));
+  }
+  return s.split(',').map((part) => part.trim().split(/\s+/)).filter((p) => /^turns?:/.test(p[0]))
+    .map(([urls, username, credential]) => ({ urls, username, credential }));
 }
 
 const SERVE_HELP = `Run a gossip relay server.
@@ -878,6 +899,7 @@ Options
   --name <text>      Name shown to people who connect
   --motd <text>      Short welcome line shown on connect
   --no-signups       Existing accounts only - nobody new can register
+  --turn "<url> <user> <pass>"  A TURN server to hand to callers (helps calls on strict networks)
   --max-members <n>  Most people allowed in one server/group (default 256)
   --trust-proxy      Read the visitor's address from X-Forwarded-For
                      (turn on only behind Caddy/nginx/Cloudflare)
@@ -923,4 +945,4 @@ async function serve(argv) {
   process.on('SIGTERM', shutdown);
 }
 
-module.exports = { Relay, Db, serve, SERVE_HELP };
+module.exports = { Relay, Db, serve, SERVE_HELP, parseTurn };

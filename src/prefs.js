@@ -38,6 +38,7 @@ const OPTIONS = [
   { key: 'security', choices: ['normal', 'strict'], def: 'normal', desc: 'strict = refuse to connect to anything that is not encrypted (https or wss)' },
   { key: 'mini.shrink', choices: ['on', 'off'], def: 'on', desc: 'Let `gossip mini` make the window small (and put it back after)' },
   { key: 'files', text: 300, def: '', desc: 'Folder for files people send you (empty: Downloads/gossip)' },
+  { key: 'call.turn', text: 300, def: '', desc: 'Your own TURN server for calls on strict networks: turn:host:port username password' },
   { key: 'calls', choices: ['contacts', 'everyone', 'off'], def: 'contacts', desc: 'Who can call you' },
   { key: 'notify', choices: ['on', 'preview', 'off'], def: 'on', desc: 'Desktop pop-up for new messages when you are away: who it is from, with a preview, or never' },
   { key: 'emoji', choices: ['on', 'off'], def: 'on', desc: 'Turn :smile: style words into emoji when you send' },

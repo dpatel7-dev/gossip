@@ -59,10 +59,12 @@ class Calls extends EventEmitter {
 
   _routes() {
     const web = this.web;
-    web.on('GET', 'call', (req, res, [id], send) => {
+    web.on('GET', 'call', async (req, res, [id], send) => {
       const c = this.list.get(id);
       if (!c) return send(404, 'This call is over.\n');
+      const ice = await this._ice();
       return send(200, web.page('call.html', {
+        ice,
         id: c.id, role: c.dir === 'out' ? 'caller' : 'callee', me: this.app.me, peer: c.peer, video: c.video, icon: 'phone',
         api: web.url(`callapi/${c.id}`), events: web.url(`callevents/${c.id}`), stun: STUN,
       }), 'text/html; charset=utf-8');
@@ -93,6 +95,28 @@ class Calls extends EventEmitter {
     });
   }
 
+  /**
+   * The servers that help two browsers find each other: public STUN, plus any
+   * TURN server your relay or website hands out, plus your own (call.turn).
+   */
+  async _ice() {
+    const list = [{ urls: STUN }];
+    const now = Date.now();
+    if (!this._turn || now - this._turn.at > 10 * 60 * 1000) {
+      let fromServer = [];
+      try {
+        if (this.app.link && this.app.link.online) fromServer = (await this.app.link.request('ice', {}, 5000)).ice || [];
+      } catch { /* an older relay: nothing extra */ }
+      this._turn = { at: now, list: Array.isArray(fromServer) ? fromServer.slice(0, 6) : [] };
+    }
+    for (const x of this._turn.list) {
+      if (x && (typeof x.urls === 'string' || Array.isArray(x.urls))) list.push({ urls: x.urls, username: x.username || undefined, credential: x.credential || undefined });
+    }
+    const mine = String(prefs.val('call.turn') || '').trim().split(/\s+/);
+    if (/^turns?:/.test(mine[0])) list.push({ urls: mine[0], username: mine[1], credential: mine[2] });
+    return list;
+  }
+
   _new(peer, dir, id, video) {
     const c = {
       id: id || crypto.randomBytes(9).toString('base64url'), peer, dir, video: !!video,
@@ -114,6 +138,14 @@ class Calls extends EventEmitter {
     c.state = state;
     if (reason) c.reason = reason;
     if (state === 'live' && !c.started) c.started = Date.now();
+    if (ACTIVE.has(state) && !this._hot) {
+      // a website-based link checks for news less often when things are quiet: not during a call
+      this._hot = setInterval(() => {
+        if (!this.current) { clearInterval(this._hot); this._hot = null; return; }
+        if (this.app.link && typeof this.app.link._bump === 'function') this.app.link._bump();
+      }, 4000);
+    }
+    if (state === 'live') clearTimeout(c.timer);
     if (!ACTIVE.has(state)) {
       c.ended = Date.now();
       clearTimeout(c.timer);
@@ -197,6 +229,13 @@ class Calls extends EventEmitter {
       await this._send(c, { t: 'offer', sdp: m.sdp, video: c.video });
     } else if (m.t === 'answer' && c.dir === 'in' && typeof m.sdp === 'string' && m.sdp.length < 60000) {
       await this._send(c, { t: 'answer', sdp: m.sdp });
+    } else if ((m.t === 'reoffer' || m.t === 'reanswer') && ACTIVE.has(c.state) && typeof m.sdp === 'string' && m.sdp.length < 60000) {
+      await this._send(c, { t: m.t, sdp: m.sdp });
+    } else if (m.t === 'restart' && ACTIVE.has(c.state)) {
+      if (!c.lastRestart || Date.now() - c.lastRestart > 3000) {
+        c.lastRestart = Date.now();
+        await this._send(c, { t: 'restart' });
+      }
     } else if (m.t === 'live' && ACTIVE.has(c.state)) {
       if (c.state !== 'live') {
         this._set(c, 'live');
@@ -256,6 +295,12 @@ class Calls extends EventEmitter {
       c.remoteSdp = data.sdp;
       if (c.state === 'calling') this._set(c, 'connecting');
       this._tell(c, { t: 'answer', sdp: data.sdp });
+    } else if (['reoffer', 'reanswer'].includes(data.t) && typeof data.sdp === 'string' && ACTIVE.has(c.state)) {
+      // the connection is being rebuilt (a network hiccup): hand the new details to the browser
+      if (data.t === 'reoffer' && c.dir === 'in') this._tell(c, { t: 'reoffer', sdp: data.sdp });
+      if (data.t === 'reanswer' && c.dir === 'out') this._tell(c, { t: 'reanswer', sdp: data.sdp });
+    } else if (data.t === 'restart' && c.dir === 'out' && ACTIVE.has(c.state)) {
+      this._tell(c, { t: 'restart' });
     } else if (data.t === 'end' && ACTIVE.has(c.state)) {
       const reason = { declined: 'declined', busy: 'busy', unavailable: 'unavailable' }[data.reason] || 'hung up';
       const was = c.state;

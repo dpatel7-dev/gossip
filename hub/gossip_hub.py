@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS aliases(old TEXT PRIMARY KEY, new TEXT);
 
 class Hub:
     def __init__(self, data_dir=None, name='gossip', motd='', signups=True, max_members=LIMIT_MEMBERS,
-                 max_users=20000, max_mb=300, signups_per_hour=30, trust_proxy=False, public_url=''):
+                 max_users=20000, max_mb=300, signups_per_hour=30, trust_proxy=False, public_url='', turn=None):
         self.name = name
         self.motd = motd
         self.signups = signups
@@ -281,6 +281,7 @@ class Hub:
         self.signups_per_hour = signups_per_hour
         self.trust_proxy = trust_proxy
         self.public_url = public_url.rstrip('/')
+        self.turn = turn or []
         self.lock = threading.RLock()
         self.ip_signups = {}
         self.ip_hellos = {}
@@ -566,6 +567,10 @@ class Hub:
         return {'name': name, 'created': created, 'rooms': rooms, 'invites': invites,
                 'blocked': self._blocked_list(name), 'waiting': len(waiting), 'notices': notices,
                 'token': token, 'events': events, 'others': others}
+
+    def h_ice(self, s, m, now):
+        """Extra servers that help calls get through strict networks (TURN), if this site has any."""
+        return {'ice': self.turn}
 
     def h_sessions(self, s, m, now):
         """Every place your account is open right now (for the dashboard)."""
@@ -1022,6 +1027,27 @@ _hub = None
 _hub_lock = threading.Lock()
 
 
+def _turn(value):
+    """TURN servers for calls: a list like the browser's own, or "turn:host:port user pass, ..."."""
+    if not value:
+        return []
+    if isinstance(value, str) and value.strip()[:1] in '[{':
+        value = json.loads(value)
+    if isinstance(value, dict):
+        value = [value]
+    out = []
+    if isinstance(value, str):
+        for part in value.split(','):
+            bits = part.split()
+            if bits and re.match(r'turns?:', bits[0]):
+                out.append({'urls': bits[0], 'username': bits[1] if len(bits) > 1 else None, 'credential': bits[2] if len(bits) > 2 else None})
+        return out
+    for x in value if isinstance(value, list) else []:
+        if isinstance(x, dict) and isinstance(x.get('urls'), (str, list)):
+            out.append({'urls': x['urls'], 'username': x.get('username'), 'credential': x.get('credential')})
+    return out
+
+
 def _from_env():
     env = os.environ
     data = env.get('GOSSIP_DATA') or os.path.join(os.path.expanduser('~'), 'gossip-data')
@@ -1042,6 +1068,7 @@ def _from_env():
         max_members=int(env.get('GOSSIP_MAX_MEMBERS') or conf.get('max_members') or LIMIT_MEMBERS),
         trust_proxy=env.get('GOSSIP_TRUST_PROXY', '1' if 'PYTHONANYWHERE_DOMAIN' in env else '0') == '1',
         public_url=str(env.get('GOSSIP_PUBLIC_URL') or conf.get('public_url') or ''),
+        turn=_turn(env.get('GOSSIP_TURN') or conf.get('turn')),
     )
 
 
