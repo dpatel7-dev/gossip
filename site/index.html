@@ -32,7 +32,7 @@
     --edge: rgba(255, 255, 255, .34);
   }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; overflow-x: clip; }
   body {
     margin: 0;
     color: var(--snow);
@@ -132,8 +132,8 @@
   section { padding: 4.2rem 0; position: relative; }
   /* light under the water, so the lower half isn't one flat blue */
   section::before { content: ""; position: absolute; z-index: -1; border-radius: 50%; filter: blur(90px); opacity: .3; pointer-events: none; }
-  #questions::before { width: 34rem; height: 20rem; left: -12rem; top: 6rem; background: var(--violet); }
-  #questions::after { content: ""; position: absolute; z-index: -1; width: 30rem; height: 18rem; right: -10rem; bottom: 2rem; border-radius: 50%; filter: blur(90px); opacity: .26; background: var(--aurora); pointer-events: none; }
+  #features::before { width: 34rem; height: 20rem; left: -12rem; top: 14rem; background: var(--violet); }
+  #features::after { content: ""; position: absolute; z-index: -1; width: 30rem; height: 18rem; right: -10rem; bottom: 2rem; border-radius: 50%; filter: blur(90px); opacity: .26; background: var(--aurora); pointer-events: none; }
   #commands::before { width: 36rem; height: 16rem; right: 4rem; top: 5rem; background: var(--coral); opacity: .2; }
   h2 { font-size: clamp(1.75rem, 3.1vw, 2.5rem); line-height: 1.08; letter-spacing: -.025em; font-weight: 600; margin: 0 0 .7rem; }
   .sub { color: var(--soft); max-width: 36rem; margin: 0 0 2.2rem; }
@@ -144,29 +144,75 @@
   .steps strong { display: block; font-weight: 600; font-size: 1.1rem; margin-bottom: .2rem; }
   .steps span { color: var(--soft); font-size: .98rem; }
 
-  .talk { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: 3.5rem; align-items: start; }
-  .talk aside { position: sticky; top: 2rem; }
-  .thread { display: flex; flex-direction: column; gap: .7rem; }
-  .q, .a { max-width: 33rem; padding: .85rem 1.15rem; }
-  .q { align-self: flex-end; border-radius: 22px 22px 6px 22px; background: rgba(124, 199, 255, .2); border: 1px solid rgba(124, 199, 255, .42); }
-  .a { align-self: flex-start; border-radius: 22px 22px 22px 6px; margin-bottom: 1.1rem; }
-  .a p { margin: 0; }
-  .a p + p { margin-top: .55rem; }
-  .a code, .cmds code { color: var(--snow); background: rgba(9, 14, 40, .5); padding: .12em .5em; border-radius: 7px; white-space: nowrap; }
-  .who { display: block; font-size: .82rem; color: var(--beak); font-weight: 600; margin-bottom: .15rem; }
+  .say code, .more code, .news code, .cmds code { color: var(--snow); background: rgba(9, 14, 40, .5); padding: .12em .5em; border-radius: 7px; white-space: nowrap; }
 
   .cmds { display: grid; grid-template-columns: auto 1fr; gap: .7rem 1.6rem; margin: 0; align-items: baseline; }
   .cmds dt { margin: 0; }
   .cmds dd { margin: 0; color: var(--soft); }
+
+
+  h3 { font-size: 1.45rem; line-height: 1.15; letter-spacing: -.02em; font-weight: 600; margin: 0 0 .5rem; }
+  .row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 3.5rem; align-items: center; padding: 1.6rem 0; }
+  .row.flip .say { order: 2; }
+  .say p { color: var(--soft); margin: 0 0 .8rem; max-width: 30rem; }
+  .show { border-radius: 26px; padding: 1.3rem 1.4rem; font: 400 .86rem/1.55 var(--mono); }
+  .mock { background: rgba(8, 13, 36, .72); border-radius: 16px; padding: .9rem 1.1rem; }
+  .mock .t { color: var(--glacier); font-weight: 700; margin-bottom: .35rem; }
+  .mock li { list-style: none; display: flex; gap: 1.2rem; padding: .05rem 0; color: var(--snow); }
+  .mock ul { margin: 0; padding: 0; }
+  .mock li span { color: var(--faint); }
+  .mock li.on { color: var(--glacier); font-weight: 700; }
+  .mock li.on::before { content: "›"; color: var(--beak); margin-right: -.6rem; }
+  .mock li:not(.on) { padding-left: 1.15rem; }
+  .mock .k { margin-top: .5rem; color: var(--faint); font-size: .78rem; }
+  .near { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .6rem; text-align: center; font-family: var(--sans); }
+  .near .pc { background: rgba(8, 13, 36, .72); border-radius: 14px 14px 6px 6px; padding: .8rem .5rem; font: 400 .8rem var(--mono); color: var(--soft); }
+  .near .pc b { display: block; color: #7ddba3; }
+  .near .hop { color: var(--beak); letter-spacing: .25em; font-family: var(--mono); }
+  .near .cap { grid-column: 1 / -1; color: var(--soft); font-size: .92rem; margin-top: .5rem; }
+  .near .cap s { color: var(--coral); text-decoration-thickness: 2px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+  .swatches button { font: 560 .92rem var(--sans); color: var(--snow); background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; padding: .4rem .9rem .4rem .5rem; display: flex; align-items: center; gap: .5rem; cursor: pointer; transition: background-color .2s; }
+  .swatches button:hover { background: rgba(255, 255, 255, .18); }
+  .swatches button[aria-pressed="true"] { background: rgba(255, 255, 255, .28); border-color: rgba(255, 255, 255, .6); }
+  .swatches i { width: 1.15rem; height: 1.15rem; border-radius: 50%; }
+  .mini { --bg: rgba(8, 13, 36, .78); --fg: #f4f7fc; --dim: #8a94a8; --a: #7cc7ff; --b: #ffb86b; --ok: #7ddba3; --sv: #7fe3d4; background: var(--bg); color: var(--fg); border-radius: 16px; padding: .9rem 1.1rem; transition: background-color .35s, color .35s; }
+  .mini p { margin: 0; }
+  .mini .hd { color: var(--sv); font-weight: 700; margin-bottom: .4rem; }
+  .mini .hd span { color: var(--dim); font-weight: 400; }
+  .mini time { color: var(--dim); margin-right: .7rem; }
+  .mini .n1 { color: var(--ok); font-weight: 700; }
+  .mini .n2 { color: var(--b); font-weight: 700; }
+  .mini .in { margin-top: .6rem; border-top: 1px solid var(--dim); padding-top: .5rem; color: var(--dim); }
+  .mini .in b { color: var(--b); }
+  .more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6rem 3.5rem; margin: 2.6rem 0 0; padding-top: 2.2rem; border-top: 1px solid rgba(255, 255, 255, .2); }
+  .more dt { font-weight: 600; font-size: 1.12rem; margin-bottom: .2rem; }
+  .more dd { margin: 0; color: var(--soft); }
+  .floe { border-radius: 40px 40px 28px 28px; padding: 2rem 1.5rem 1.6rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; text-align: center; }
+  .floe canvas { width: 144px; height: 144px; image-rendering: pixelated; }
+  .floe figure { margin: 0; }
+  .floe figcaption { color: var(--soft); margin-top: .4rem; }
+  .floe figcaption b { display: block; color: var(--snow); font-weight: 600; font-size: 1.1rem; }
+  .keys6 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.4rem 2.5rem; margin: 0; }
+  .keys6 dt { margin-bottom: .3rem; }
+  .keys6 dd { margin: 0; color: var(--soft); }
+  kbd { display: inline-block; font: 600 .95rem var(--mono); color: var(--ink); background: linear-gradient(180deg, #fff, #d9e2f2); border-radius: 9px; padding: .25rem .6rem; box-shadow: 0 3px 0 rgba(8, 12, 40, .55); }
+  .news { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.5rem; }
+  .news h3 { color: var(--beak); font-size: 1.15rem; }
+  .news ul { margin: 0; padding-left: 1.1rem; color: var(--soft); font-size: .98rem; }
+  .news li { margin-bottom: .45rem; }
+  #pebble::before { width: 30rem; height: 16rem; left: 30%; top: 4rem; background: var(--glacier); opacity: .22; }
 
   footer { padding: 2.5rem 0 3.5rem; color: var(--faint); font-size: .95rem; display: flex; flex-wrap: wrap; gap: .6rem 2rem; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, .14); }
   footer a { color: var(--soft); }
 
   @media (max-width: 62rem) {
     .hero { grid-template-columns: 1fr; gap: 9.5rem; padding-bottom: 6rem; }
-    .talk { grid-template-columns: 1fr; gap: 1.5rem; }
-    .talk aside { position: static; }
     .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 2rem; }
+    .row { grid-template-columns: 1fr; gap: 1.4rem; }
+    .row.flip .say { order: 0; }
+    .news { grid-template-columns: 1fr; gap: 1.6rem; }
+    .keys6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 36rem) {
     nav a.opt { display: none; }
@@ -176,6 +222,8 @@
     .cmd code { padding: .5rem .55rem; }
     .copy { align-self: stretch; }
     .steps { grid-template-columns: 1fr; }
+    .more, .floe, .keys6 { grid-template-columns: 1fr; }
+    .floe canvas { width: 112px; height: 112px; }
     .pebble { right: 1.4rem; }
     .cmds { grid-template-columns: 1fr; gap: .15rem; }
     .cmds dd { margin-bottom: .8rem; }
@@ -195,7 +243,8 @@
     <a class="brand" href="#top" id="top"><canvas id="mark" width="16" height="16" aria-hidden="true"></canvas>gossip</a>
     <nav aria-label="Page">
       <a class="opt" href="#start">Getting started</a>
-      <a class="opt" href="#questions">Questions</a>
+      <a class="opt" href="#features">What it does</a>
+      <a class="opt" href="#pebble">Pebble</a>
       <a href="https://github.com/dpatel7-dev/gossip">GitHub</a>
     </nav>
   </header>
@@ -252,30 +301,94 @@
       </ol>
     </section>
 
-    <section id="questions">
-      <div class="talk">
-        <aside>
-          <h2>Questions people ask Pebble</h2>
-          <p class="sub">Pebble is the penguin. Pebble answers honestly, including the parts that are less impressive.</p>
-        </aside>
-        <div class="thread">
-          <div class="q">Do I have to learn commands?</div>
-          <div class="a glass"><span class="who">Pebble</span><p>No. Your chats are in a list on the left, and the arrow keys or the mouse move between them. Tab opens a menu for everything else: adding people, servers, colours.</p><p>If you like commands they still work, like <code>gossip squawk maya hi</code>.</p></div>
+    <section id="features">
+      <h2>A whole chat app, and nothing to memorise</h2>
+      <p class="sub">gossip opens as a proper chat screen: your people and servers on the left, the conversation on the right, a box to type in.</p>
 
-          <div class="q">Can anyone else read my messages?</div>
-          <div class="a glass"><span class="who">Pebble</span><p>Only the people in the chat. Messages are locked on your computer and unlocked on theirs, the same idea as iMessage. The computer passing them along can see who is talking to whom and when, but never what is said.</p></div>
-
-          <div class="q">What if there's no internet?</div>
-          <div class="a glass"><span class="who">Pebble</span><p>Run <code>gossip nearby</code>. It finds other people on the same Wi-Fi router or network cable, even if the router isn't online. The computers do still need to be connected to each other somehow.</p></div>
-
-          <div class="q">Can I make a group?</div>
-          <div class="a glass"><span class="who">Pebble</span><p>Yes, they're called servers. Make one open to everyone or invite-only. Whoever owns a server can remove people from it.</p></div>
-
-          <div class="q">Do I have to update it?</div>
-          <div class="a glass"><span class="who">Pebble</span><p>It checks for a new version by itself and switches over the next time you start it. You can turn that off with <code>gossip config update off</code>.</p></div>
+      <div class="row">
+        <div class="say">
+          <h3>A menu does the remembering</h3>
+          <p>Press Tab and everything is there: add a person, start a server, invite someone, change the colours. Arrow keys to move, Enter to choose. The mouse works as well.</p>
+        </div>
+        <div class="show glass" aria-hidden="true">
+          <div class="mock">
+            <div class="t">Menu</div>
+            <ul>
+              <li class="on">Chat with… <span>pick a person or a server</span></li>
+              <li>Add a person <span>by their username</span></li>
+              <li>Servers <span>join, create, invite, remove</span></li>
+              <li>People <span>contacts, blocking</span></li>
+              <li>Make it yours <span>colours, penguin, layout</span></li>
+              <li>This chat <span>mute, search, save to a file</span></li>
+            </ul>
+            <div class="k">↑↓ move &nbsp; enter choose &nbsp; esc close</div>
+          </div>
         </div>
       </div>
+
+      <div class="row flip">
+        <div class="say">
+          <h3>Works when the internet doesn't</h3>
+          <p>Run <code>gossip nearby</code> and it finds everyone else on the same Wi-Fi router or network cable. The router doesn't need to be online. If the person hosting leaves, someone else takes over without anyone noticing.</p>
+        </div>
+        <div class="show glass near" aria-hidden="true">
+          <div class="pc"><b>● ann</b>gossip nearby</div>
+          <div class="hop">···</div>
+          <div class="pc"><b>● ben</b>gossip nearby</div>
+          <div class="cap">Same Wi-Fi or cable. <s>Internet</s> not needed.</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="say">
+          <h3>Make it look like yours</h3>
+          <p>Six colour themes, your own colours on top, two layouts and two looks. Try a theme:</p>
+          <div class="swatches" id="swatches" role="group" aria-label="Colour theme"></div>
+        </div>
+        <div class="show glass">
+          <div class="mini" id="mini" aria-label="Preview of the chosen theme">
+            <p class="hd">#gamedev <span>3 people</span></p>
+            <p><time>8:02 PM</time><b class="n1">maya</b>: playtest tonight?</p>
+            <p><time>8:02 PM</time><b class="n2">sam</b>: yes, bringing snacks</p>
+            <p><time>8:03 PM</time><b>you</b>: 8 works for me</p>
+            <p class="in"><b>›</b> Message #gamedev</p>
+          </div>
+        </div>
+      </div>
+
+      <dl class="more">
+        <div><dt>Private by default</dt><dd>Messages are locked on your computer and unlocked on your friend's, the same idea as iMessage. Whatever passes them along can see who is talking, never what is said.</dd></div>
+        <div><dt>Servers with an owner</dt><dd>Make a group open to everyone or invite-only. The owner can remove people, even when they're offline, and can hand the server to someone else.</dd></div>
+        <div><dt>It tells you, quietly</dt><dd>A pop-up from your computer when a message arrives and you're looking elsewhere. Mute any chat you'd like left alone.</dd></div>
+        <div><dt>Find it again</dt><dd>Search everything you've been sent with <code>gossip find</code>, or save a whole chat to a text file with <code>gossip export</code>.</dd></div>
+        <div><dt>Looks after itself</dt><dd>gossip fetches new versions in the background and switches over the next time you open it.</dd></div>
+        <div><dt>Leaves cleanly</dt><dd><code>gossip uninstall</code> removes it, and asks whether to keep your account for later.</dd></div>
+      </dl>
     </section>
+
+    <section id="pebble">
+      <h2>Meet Pebble</h2>
+      <p class="sub">Pebble lives in the corner of your chat and reacts to what's going on. These are the same pixels the app draws in your terminal.</p>
+      <div class="floe glass">
+        <figure><canvas data-scene="dance" width="16" height="16" role="img" aria-label="Pebble dancing"></canvas><figcaption><b>Dances</b>when you send a message</figcaption></figure>
+        <figure><canvas data-scene="phone" width="16" height="16" role="img" aria-label="Pebble on the phone"></canvas><figcaption><b>Picks up the phone</b>when one arrives</figcaption></figure>
+        <figure><canvas data-scene="laptop" width="16" height="16" role="img" aria-label="Pebble typing on a laptop"></canvas><figcaption><b>Types along</b>while you type</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="keys">
+      <h2>Six keys run the whole thing</h2>
+      <p class="sub">That's the entire manual.</p>
+      <dl class="keys6">
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move between your chats</dd></div>
+        <div><dt><kbd>Tab</kbd></dt><dd>Open the menu</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Send, or choose</dd></div>
+        <div><dt><kbd>PgUp</kbd> <kbd>PgDn</kbd></dt><dd>Scroll back through a chat</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Back out of anything</dd></div>
+        <div><dt><kbd>Ctrl</kbd> <kbd>D</kbd></dt><dd>Leave</dd></div>
+      </dl>
+    </section>
+
 
     <section id="commands">
       <h2>Prefer typing? It's all still there.</h2>
@@ -288,6 +401,12 @@
         <dt><code>gossip nearby</code></dt><dd>Chat with people on the same Wi-Fi or cable, no internet needed.</dd>
         <dt><code>gossip config</code></dt><dd>Change the colours, the penguin, the layout and more.</dd>
       </dl>
+    </section>
+
+    <section id="new">
+      <h2>What's new</h2>
+      <p class="sub">The last few versions. In the app, <code style="font-family:var(--mono)">gossip changelog</code> shows the same list.</p>
+      <div class="news"><div><h3>Version 0.4.2</h3><ul><li>A new blocky Pebble, drawn only with whole coloured squares, so no terminal can stripe it. macOS Terminal gets it automatically; choose yourself with <code>gossip config mascot.style blocky</code> or <code>smooth</code>.</li></ul></div><div><h3>Version 0.4.0</h3><ul><li>Pebble is always around: every start opens with Pebble saying hello (any key skips it), and Pebble now lives at the bottom of the left column.</li><li>Pebble reacts: picks up the phone when a message arrives, types when you type, dances when you send.</li><li>Desktop pop-ups for new messages when you're away from the window (macOS and Linux). <code>gossip config notify preview</code> adds the message text, <code>off</code> stops them.</li><li>A "new" line shows where the unread messages start when you open a chat.</li><li>Emoji words: type <code>:fire:</code> or <code>:thumbsup:</code> and it's sent as the emoji (<code>gossip config emoji off</code> to stop).</li></ul></div><div><h3>Version 0.3.0</h3><ul><li><code>gossip uninstall</code> (or <code>gossip delete</code>) removes gossip from your computer. It asks first, and lets you keep your account and messages.</li><li>Update notes: <code>gossip changelog</code> shows what changed in each version and when this computer updated.</li><li>Your People list now only holds people you added. Someone who messages you shows under "Others" until you've read it; nobody is put on your list for you.</li><li>A server's owner can remove anyone, online or not, including people who were invited but haven't joined yet (Tab, Servers, Remove someone, "Someone not listed").</li><li>Hand a server to another member: <code>gossip give maya gamedev</code>.</li></ul></div></div>
     </section>
   </main>
 
@@ -379,6 +498,34 @@
     setTimeout(act, wait);
   }
   act();
+
+
+  // the three Pebbles further down the page
+  Array.prototype.forEach.call(document.querySelectorAll('canvas[data-scene]'), function (cv, n) {
+    var frames = P.scenes[cv.getAttribute('data-scene')], i = 0;
+    (function tick() {
+      paint(cv, P.grids[frames[i][0]]);
+      if (still) return;
+      var wait = frames[i][1] * 1.25;
+      i = (i + 1) % frames.length;
+      setTimeout(tick, i === 0 ? wait + 700 + n * 250 : wait);
+    })();
+  });
+
+  // ── theme preview ─────────────────────────────────────────────
+  var T = {"arctic":{"bg":"rgba(8, 13, 36, .78)","fg":"#f4f7fc","dim":"#8a94a8","a":"#7cc7ff","b":"#ffb86b","ok":"#7ddba3","sv":"#7fe3d4"},"ember":{"bg":"rgba(8, 13, 36, .78)","fg":"#f4f7fc","dim":"#9c9189","a":"#e0825a","b":"#e8c07d","ok":"#9ccf8a","sv":"#8fd0c0"},"aurora":{"bg":"rgba(8, 13, 36, .78)","fg":"#f4f7fc","dim":"#8b93a7","a":"#5eead4","b":"#c084fc","ok":"#86efac","sv":"#67e8f9"},"daylight":{"bg":"#f4f1ea","fg":"#1c2230","dim":"#5f6b7a","a":"#0b6bcb","b":"#c2410c","ok":"#15803d","sv":"#0f766e"}};
+  var mini = $('mini'), box = $('swatches');
+  Object.keys(T).forEach(function (name, n) {
+    var t = T[name], b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(n === 0));
+    b.innerHTML = '<i style="background:linear-gradient(135deg,' + t.a + ' 50%,' + t.b + ' 50%)"></i>' + name;
+    b.onclick = function () {
+      ['bg', 'fg', 'dim', 'a', 'b', 'ok', 'sv'].forEach(function (k) { mini.style.setProperty('--' + k, t[k]); });
+      Array.prototype.forEach.call(box.children, function (c) { c.setAttribute('aria-pressed', String(c === b)); });
+    };
+    box.appendChild(b);
+  });
 
   // ── the little conversation in the terminal ──────────────────
   var script = [
