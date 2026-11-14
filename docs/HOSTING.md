@@ -66,9 +66,66 @@ blocked. The call stays end-to-end encrypted; the relay only sees scrambled
 packets. It also lets people hide their IP address from whoever they call
 (`gossip config call.hideip on`).
 
-It needs a machine that's always on and reachable from the internet - your
-Google Cloud VM is perfect (the smallest free one is plenty). PythonAnywhere
-can't do it, because calls need ports that websites don't get.
+You don't need this for calls to work - most calls connect directly. It only
+helps on networks that block direct calls.
+
+PythonAnywhere can't run a call relay itself (calls need ports that websites
+don't get), so there are two ways to get one:
+
+- **Option A - a free relay service.** No server, nothing running on your computer. Takes 5 minutes.
+- **Option B - run gossip's own relay** on a machine that's always on (like a cloud VM).
+
+#### Option A: a free relay service (no server needed)
+
+[ExpressTURN](https://www.expressturn.com/) gives you a call relay for free
+(1 TB a month - thousands of hours of calls) with no credit card.
+
+1. Go to <https://www.expressturn.com/signup> and make an account.
+2. On your ExpressTURN dashboard, find three things and copy them somewhere:
+   the **server address** (usually `relay1.expressturn.com`), your **username**
+   (`turn_username`) and your **password** (`turn_password`).
+3. On PythonAnywhere, open the **Files** tab, go to `gossip-data`, and open (or
+   create) `config.json`. Make it look like this, putting in your own username
+   and password (4 places) - and your own server address if it isn't `relay1`:
+
+   ```json
+   {
+     "turn": [
+       { "urls": "turn:relay1.expressturn.com:3478", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" },
+       { "urls": "turns:relay1.expressturn.com:443?transport=tcp", "username": "YOUR_USERNAME", "credential": "YOUR_PASSWORD" }
+     ]
+   }
+   ```
+
+   If the file already has something in it (like `"signups": false`), keep
+   that line and put a comma after it, like this:
+
+   ```json
+   {
+     "signups": false,
+     "turn": [ ... ]
+   }
+   ```
+
+4. Click **Save**, then press **Reload** on the **Web** page.
+
+That's it - everyone signed in to your site gets the relay automatically. To
+check it: start a call, then look at the call window; on a network that needs
+the relay it says **"through a relay"** next to the signal bars.
+
+Good to know: everyone signed in to your site can see this username and
+password (their gossip needs it to use the relay). That's normal for free
+relays. If someone ever abuses it, change the password on ExpressTURN and
+update `config.json`.
+
+If you'd rather not even touch the website, each person can add it to just
+their own gossip instead:
+`gossip config call.turn "turn:relay1.expressturn.com:3478 YOUR_USERNAME YOUR_PASSWORD"`.
+
+#### Option B: run gossip's own relay
+
+It needs a machine that's always on and reachable from the internet - a small
+cloud VM is perfect (the smallest free one is plenty).
 
 1. **On the VM**, install gossip (same line as everyone else) and start the call relay as a service:
 

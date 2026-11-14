@@ -293,9 +293,10 @@ gossip relay                                       # show what you're using
 
 ## Calls on strict networks
 
-Calls connect your computers directly. Where a network blocks that, gossip's own
-call relay passes the (still end-to-end encrypted) call along: run `gossip turn`
-on an always-on machine and give its two lines to your website.
+Calls connect your computers directly. Where a network blocks that, a call relay
+(TURN) passes the (still end-to-end encrypted) call along. The easy way needs no
+server: get a free relay login from ExpressTURN and paste it into your website's
+`config.json`. Or run gossip's own relay (`gossip turn`) on an always-on machine.
 [Step-by-step](docs/HOSTING.md#make-calls-work-on-strict-networks-optional-recommended).
 With it, `gossip config call.hideip on` keeps your IP address hidden from people you call.
 
