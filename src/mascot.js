@@ -245,11 +245,16 @@ function cell(top, bottom, mode) {
     return t && b ? '█' : t ? '▀' : '▄';
   }
   const ink = (ch) => (mode === 'ansi' ? INK[ch].ansi : INK[ch].rgb);
-  // Whole cells are coloured with the background, not a block character: a background
-  // fills the full height of the line, while █ leaves thin gaps between lines in
-  // terminals that add line spacing (macOS Terminal does).
-  if (t && b) return t === b ? A.paint(' ', { bg: ink(t) }) : A.paint('▀', { fg: ink(t), bg: ink(b) });
-  return t ? A.paint('▀', { fg: ink(t) }) : A.paint('▄', { fg: ink(b) });
+  // Half-block characters don't quite fill their half of the line in terminals
+  // that add line spacing (macOS Terminal leaves a sliver at the TOP of each line),
+  // while a background colour always fills the whole cell. So:
+  //   - a solid cell is just a coloured background;
+  //   - anything touching the top of the cell is drawn as background, with the
+  //     lower-half block ▄ (which does sit flush with the bottom) on top of it.
+  if (t && b) return t === b ? A.paint(' ', { bg: ink(t) }) : A.paint('▄', { fg: ink(b), bg: ink(t) });
+  // top pixel only: fill the cell with its colour and cut the lower half back out
+  // in the terminal's own background (that is what "inverse" does here)
+  return t ? A.paint('▄', { fg: ink(t), inverse: true }) : A.paint('▄', { fg: ink(b) });
 }
 
 /**

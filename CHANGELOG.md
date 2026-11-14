@@ -2,6 +2,9 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.4.1
+- Fixed the thin stripes across Pebble in macOS Terminal: the penguin is now drawn so line spacing can't show through.
+
 ## 0.4.0
 - Pebble is always around: every start opens with Pebble saying hello (any key skips it), and Pebble now lives at the bottom of the left column.
 - Pebble reacts: picks up the phone when a message arrives, types when you type, dances when you send.
