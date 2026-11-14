@@ -12,7 +12,7 @@ const e2e = require('./e2e');
 const prefs = require('./prefs');
 const Th = require('./theme');
 const M = require('./mascot');
-const { plural, distance } = require('./text');
+const { plural, distance, emojify } = require('./text');
 
 function userArg(app, raw, { allowSelf = false } = {}) {
   const name = P.cleanName(raw);
@@ -100,6 +100,7 @@ const pretty = (key) => (key[0] === '#' ? key : key.slice(1));
 
 /** Send from the live prompt: don't wait, just report if it fails. */
 function sendFromShell(app, key, text) {
+  if (prefs.on('emoji')) text = emojify(text);
   app.send(key, text).catch((e) => app.say(`Not sent to ${pretty(key)}: ${e.message}`, 'err'));
 }
 
@@ -644,9 +645,13 @@ const COMMANDS = [
   // ── Setup ───────────────────────────────────────────────────────────────
   {
     name: 'whoami', aliases: ['me'], group: 'Setup',
-    desc: 'Show your username and key fingerprint',
-    async run(ctx) {
+    desc: 'Show your username and key fingerprint (in a chat, "/me waves" sends an action)',
+    async run(ctx, args) {
       const { app } = ctx;
+      if (args && args.length && ctx.shell) { // "/me waves" -> * dhruv waves
+        if (!app.target) throw new Error(ctx.noTarget || 'Open a chat first.');
+        return sendFromShell(app, app.target, '/me ' + args.join(' '));
+      }
       app.rows([
         [['username     ', 'dim'], [app.me, 'name:' + app.me]],
         [['relay        ', 'dim'], [app.serverUrl || '(not set)', null]],

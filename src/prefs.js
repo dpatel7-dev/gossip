@@ -34,6 +34,8 @@ const OPTIONS = [
   { key: 'names', choices: ['colored', 'plain'], def: 'colored', desc: 'Give each person their own colour' },
   { key: 'you', text: 20, def: 'you', desc: 'How your own messages are labelled' },
   { key: 'links', choices: ['underline', 'plain'], def: 'underline', desc: 'How web links are shown' },
+  { key: 'notify', choices: ['on', 'preview', 'off'], def: 'on', desc: 'Desktop pop-up for new messages when you are away: who it is from, with a preview, or never' },
+  { key: 'emoji', choices: ['on', 'off'], def: 'on', desc: 'Turn :smile: style words into emoji when you send' },
   { key: 'bell', choices: ['all', 'mentions', 'off'], def: 'all', desc: 'Sound for DMs and @mentions, only @mentions, or never' },
   { key: 'typing', choices: ['on', 'off'], def: 'on', desc: 'Show (and send) "is typing…"' },
   { key: 'receipts', choices: ['on', 'off'], def: 'on', desc: 'Tell you when a DM is delivered' },

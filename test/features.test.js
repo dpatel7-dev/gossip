@@ -175,3 +175,22 @@ test('penguin: solid areas are painted as backgrounds, so line spacing leaves no
   assert.equal(lines.length, M.HEIGHT);
   assert.ok(!lines.join('').includes('█'), 'no full-block characters');
 });
+
+test('small things: emoji words, actions, notification commands', () => {
+  const { emojify } = require('../src/text');
+  assert.equal(emojify('nice :fire: at 12:30:45 :notaword:'), 'nice 🔥 at 12:30:45 :notaword:');
+
+  const R = require('../src/render');
+  const A = require('../src/ansi');
+  const line = R.messageLines('ann', '@ben', { from: 'ben', ts: Date.now(), text: '/me waves' }, 80, true).map(A.strip).join('|');
+  assert.match(line, /\* ben waves$/);
+  assert.doesNotMatch(line, /\/me/);
+
+  const notify = require('../src/notify');
+  const mac = notify.command('gossip', 'say "hi" \\ there', 'darwin');
+  assert.equal(mac[0], 'osascript');
+  assert.equal(mac[1][1], 'display notification "say \\"hi\\" \\\\ there" with title "gossip"');
+  assert.deepEqual(notify.command('t', 'b', 'linux'), ['notify-send', ['--app-name=gossip', '--', 't', 'b']]);
+  assert.equal(notify.command('t', 'b', 'win32'), null);
+  assert.equal(notify.message('off', '@ben', { from: 'ben', text: 'x' }), false);
+});

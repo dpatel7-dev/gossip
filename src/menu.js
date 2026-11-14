@@ -66,7 +66,7 @@ function thisChat(m) {
   if (key) {
     items.push({ label: app.muted(key) ? 'Unmute this chat' : 'Mute this chat', desc: 'no sound, no unread count', run: run(m, 'mute') });
     items.push({ label: 'Save this chat to a file', desc: 'a plain text file in the current folder', run: run(m, 'export') });
-    items.push({ label: 'Show older messages', run: run(m, 'recap 50') });
+    if (m.ctx.view !== 'full') items.push({ label: 'Show older messages', run: run(m, 'recap 50') });
   }
   items.push({ label: 'Find a message…', desc: 'search everything saved on this computer', run: ask('Find a message', 'Words to look for', null, (t) => m.run('find ' + t)) });
   return { title: key ? `This chat (${key})` : 'Chats', items };

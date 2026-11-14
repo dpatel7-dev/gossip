@@ -145,10 +145,18 @@ function clockText(ts) {
  *    2:23 PM  you → maya: nice
  *    2:26 PM  sam in #gamedev: anyone around?
  */
+/** "/me waves" is shown as an action:  * maya waves */
+const isAction = (msg) => typeof msg.text === 'string' && /^\/me\s+\S/.test(msg.text);
+
 function messageLines(me, key, msg, cols, bare = false) {
   const clock = clockText(msg.ts);
   const timeW = clock ? (prefs.val('time') === '24h' ? 5 : 8) + 2 : 1;
   const time = clock ? Th.dim(clock.padStart(timeW - 2)) + '  ' : ' ';
+  if (isAction(msg)) {
+    const place = bare || key[0] === '@' ? '' : ` (${key})`;
+    return A.wrap(`${msg.from} ${msg.text.replace(/^\/me\s+/, '')}${place}`, Math.max(20, cols - 1 - timeW - 2))
+      .map((l, i) => (i === 0 ? time + Th.accent2('* ') : ' '.repeat(timeW + 2)) + A.paint(l, { italic: true }));
+  }
   const head = who(me, key, msg, bare) + Th.dim(':');
 
   const max = Math.max(24, cols - 1);
@@ -170,6 +178,7 @@ function messageLines(me, key, msg, cols, bare = false) {
 
 /** The "cozy" layout: who and when on one line, the text underneath. */
 function cozyLines(me, key, msg, cols, withHeader, bare = false) {
+  if (isAction(msg)) return messageLines(me, key, msg, cols, bare);
   const max = Math.max(24, cols - 1);
   const out = [];
   if (withHeader) {

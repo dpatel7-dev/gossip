@@ -18,6 +18,9 @@ const { Menu, pages } = require('./menu');
 const { handleInput } = require('./commands');
 const pkg = require('../package.json');
 
+const notify = require('./notify');
+
+const FOCUS_RE = /\x1b\[([IO])/g; // the terminal telling us its window gained / lost focus
 const MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 /** Is this window big enough for the full screen? */
@@ -51,6 +54,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
     let hits = []; // which row of the left column is which
     let geo = null;
     let carry = '';
+    let focused = true;
+    let focusKnown = false; // some terminals never say
+    let booting = false;
+    const pet = { scene: null, frames: null, i: 0, timer: null }; // Pebble, in the corner
 
     const host = () => {
       try { return new URL(app.serverUrl).host; } catch { return app.serverUrl || 'no relay set'; }
@@ -74,7 +81,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
       scroll = 0;
       cache = null;
       if (key) {
-        load(key);
+        const list = load(key);
+        for (let i = list.length - 1; i >= 0; i--) if (list[i].t === 'new') list.splice(i, 1);
+        const fresh = unread.get(key) || 0;
+        if (fresh > 0 && fresh < list.length) list.splice(list.length - fresh, 0, { t: 'new' }); // "new messages" line
         unread.delete(key);
         if (app.target !== key) app.setTarget(key);
       }
@@ -89,6 +99,9 @@ function run(app, { firstRun = false, notice = null } = {}) {
         const mine = item.msg.from === app.me;
         if (item.key !== sel && !mine) unread.set(item.key, (unread.get(item.key) || 0) + 1);
         if (item.key === sel && mine) scroll = 0;
+        react(mine ? 'dance' : 'phone');
+        const away = focusKnown ? !focused : Date.now() - lastKeyAt > 10000;
+        if (!mine && away && !app.muted(item.key)) notify.message(prefs.val('notify'), item.key, item.msg);
       } else {
         (sel ? load(sel) : home).push(item); // notices and tables land in whatever you're looking at
         scroll = 0;
@@ -102,6 +115,12 @@ function run(app, { firstRun = false, notice = null } = {}) {
       const printer = new R.Printer(app.me, { bare: true });
       const lines = [];
       for (const item of (sel ? load(sel) : home)) {
+        if (item.t === 'new') {
+          const label = ' new ';
+          const side = Math.max(2, Math.floor((w - label.length) / 2));
+          lines.push(Th.accent2('─'.repeat(side) + label + '─'.repeat(Math.max(2, w - 1 - side - label.length))));
+          continue;
+        }
         const block = printer.lines(item, w + 1);
         if (item.t === 'rows') lines.push('', ...block, ''); else lines.push(...block);
       }
@@ -118,12 +137,13 @@ function run(app, { firstRun = false, notice = null } = {}) {
       const lines = [];
       const look = prefs.val('theme') + Th.spriteMode();
       if (!still || still.look !== look) still = { look, lines: M.still(scene0, spriteOpts()) };
-      const sprite = stage ? stage.frames[stage.i].lines : (prefs.val('mascot') !== 'off' && h >= M.HEIGHT + 9 ? still.lines : null);
-      if (sprite) {
+      const sprite = stage ? stage.frames[stage.i].lines : (prefs.val('mascot') !== 'off' ? still.lines : null);
+      if (sprite && h >= M.HEIGHT + 2) {
         lines.push('');
         for (const l of sprite) lines.push(R.center(l, w));
       }
       if (stage && stage.only) return lines;
+      if (h < M.HEIGHT + 9) return lines.concat('', R.center(A.paint((firstRun ? 'Welcome, ' : 'Welcome back, ') + app.me, { bold: true }), w), '');
       lines.push('', R.center(A.paint((firstRun ? 'Welcome, ' : 'Welcome back, ') + app.me, { bold: true }), w), '');
       const tips = [
         ['↑ ↓', 'pick a chat on the left'],
@@ -250,7 +270,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     function frame() {
       const W = Math.max(30, out.columns || 80);
       const H = Math.max(8, out.rows || 24);
-      const side = W >= 64 ? Math.min(28, Math.max(20, Math.floor(W * 0.27))) : 0;
+      const side = W >= 64 ? Math.min(28, Math.max(24, Math.floor(W * 0.27))) : 0;
       const paneW = W - 2 - (side ? side + 1 : 0);
       const bar = Th.border('│');
 
@@ -291,6 +311,10 @@ function run(app, { firstRun = false, notice = null } = {}) {
       if (at >= sideTop + sideH) sideTop = at - sideH + 1;
       sideTop = Math.max(0, Math.min(sideTop, Math.max(0, rows.length - sideH)));
       hits = [];
+      // Pebble lives at the bottom of the left column whenever there's room
+      const petTop = sideH - M.HEIGHT;
+      const petShown = side >= M.WIDTH && sel && !stage && prefs.val('mascot') !== 'off' && rows.length + 1 <= petTop;
+      const petArt = petShown ? petLines() : null;
 
       const lines = [];
       const title = ' ' + paneTitle() + ' ';
@@ -305,7 +329,8 @@ function run(app, { firstRun = false, notice = null } = {}) {
         if (side) {
           const row = rows[sideTop + y - 1];
           hits[y] = row && row.id ? row.id : null;
-          line += R.fit(row ? sideLine(row, side) : '', side) + (y === sep ? Th.border('├') : bar);
+          const art = petArt && y - 1 >= petTop ? R.center(petArt[y - 1 - petTop], side) : null;
+          line += R.fit(art || (row ? sideLine(row, side) : ''), side) + (y === sep ? Th.border('├') : bar);
         } else if (y === sep) line = Th.border('├');
         if (y === sep) line += Th.border('─'.repeat(paneW) + '┤');
         else if (y > sep) line += ' ' + R.fit(typed[y - sep - 1] || '', paneW - 2) + ' ' + bar;
@@ -368,6 +393,32 @@ function run(app, { firstRun = false, notice = null } = {}) {
       });
     }
 
+    function petLines() {
+      if (pet.frames) return pet.frames[pet.i].lines;
+      const look = prefs.val('theme') + Th.spriteMode();
+      if (!still || still.look !== look) still = { look, lines: M.still(scene0, spriteOpts()) };
+      return still.lines;
+    }
+
+    /** Pebble reacts: on the phone when a message comes in, typing when you type, a dance when you send. */
+    function react(scene) {
+      if (closed || prefs.val('mascot') === 'off' || !prefs.on('mascot.animate')) return;
+      if (pet.frames && pet.scene === scene) return;
+      clearTimeout(pet.timer);
+      pet.scene = scene;
+      pet.frames = M.play(scene, { ...spriteOpts(), loops: 1 });
+      pet.i = 0;
+      const step = () => {
+        if (closed || !pet.frames) return;
+        pet.i++;
+        if (pet.i >= pet.frames.length) pet.frames = null;
+        else pet.timer = setTimeout(step, pet.frames[pet.i].ms);
+        schedule();
+      };
+      pet.timer = setTimeout(step, pet.frames[0].ms);
+      schedule();
+    }
+
     function play(scene) {
       if (geo && geo.msgH < M.HEIGHT + 2) return Promise.resolve();
       return perform(scene, 2, true);
@@ -380,7 +431,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     function restore() {
       try {
-        out.write('\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l');
+        out.write('\x1b[?1004l\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l');
       } catch { /* terminal already gone */ }
       try { inp.setRawMode(false); } catch { /* not a tty any more */ }
       inp.pause();
@@ -390,6 +441,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
       if (closed) return;
       closed = true;
       clearInterval(ticker);
+      clearTimeout(pet.timer);
       if (stage) stage.stop();
       for (const [target, event, fn] of hooks) target.removeListener(event, fn);
       restore();
@@ -453,6 +505,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
       if (seq === '\x1b[200~' || name === 'paste-start') { pasting = true; return; }
       if (seq === '\x1b[201~' || name === 'paste-end') { pasting = false; schedule(); return; }
       if (menu.active && !pasting) { menu.key(str, key); schedule(); return; }
+      if (booting && stage) stage.stop(); // any key skips the hello and goes to your chat
       const before = ed.text;
 
       if (pasting) {
@@ -501,6 +554,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
       }
       if (closed) return;
       if (ed.text !== before && ed.text && sel && !'/@#'.includes(ed.text[0])) app.typingPing();
+      if (ed.text !== before && ed.text) react('laptop');
       schedule();
     }
 
@@ -522,6 +576,11 @@ function run(app, { firstRun = false, notice = null } = {}) {
     function onData(chunk) {
       let text = carry + chunk.toString('utf8');
       carry = '';
+      text = text.replace(FOCUS_RE, (all, kind) => {
+        focusKnown = true;
+        focused = kind === 'I';
+        return '';
+      });
       text = text.replace(MOUSE_RE, (all, b, x, y, kind) => {
         onMouse(Number(b) & ~28, Number(x), Number(y), kind === 'M'); // (bits 4-16 are shift/alt/ctrl)
         return '';
@@ -538,6 +597,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     hook(app, 'line', onLine);
     hook(app, 'change', () => {
+      if (booting) { cache = null; schedule(); return; } // still saying hello
       if (app.target && app.target !== sel) open(app.target);
       else if (!app.target && sel) { sel = null; cache = null; }
       cache = null;
@@ -563,7 +623,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     inp.resume();
     hook(inp, 'data', onData);
     hook(out, 'resize', () => { prev = []; cache = null; out.write('\x1b[2J'); schedule(); });
-    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
+    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h\x1b[?1004h' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
 
     if (notice) {
       home.push({ t: 'note', kind: 'sys', text: notice });
@@ -574,11 +634,15 @@ function run(app, { firstRun = false, notice = null } = {}) {
         if (e.code === 'no_server') app.say('No relay is set yet. Press Tab for the menu, or type /relay <address>.', 'warn');
       });
     }
-    if (app.target) open(app.target);
-    else if (prefs.on('mascot.animate') && prefs.val('mascot') !== 'off') {
-      const want = prefs.val('mascot');
-      perform(want === 'random' ? scene0 : M.pickScene(want), 1, false);
-    }
+    // Every start opens with Pebble saying hello, then goes to the chat you had open.
+    const resume = () => {
+      booting = false;
+      if (!closed && !sel && app.target) open(app.target);
+    };
+    if (prefs.on('mascot.animate') && prefs.val('mascot') !== 'off') {
+      booting = true;
+      perform(scene0, 1, false).then(resume);
+    } else resume();
 
     const ticker = setInterval(() => {
       app.tick();

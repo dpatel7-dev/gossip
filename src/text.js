@@ -5,6 +5,18 @@
  * Make text from the network safe to show in a terminal: no escape sequences,
  * no control characters, no direction-override tricks, no towering "zalgo".
  */
+const EMOJI = {
+  smile: '😄', grin: '😁', joy: '😂', lol: '😂', wink: '😉', cool: '😎', thinking: '🤔', cry: '😢', sob: '😭', angry: '😠',
+  heart: '❤️', fire: '🔥', thumbsup: '👍', '+1': '👍', thumbsdown: '👎', '-1': '👎', wave: '👋', clap: '👏', pray: '🙏', ok: '👌',
+  party: '🎉', tada: '🎉', eyes: '👀', skull: '💀', 100: '💯', star: '⭐', check: '✅', x: '❌', rocket: '🚀', penguin: '🐧',
+  pizza: '🍕', coffee: '☕', sleep: '😴', shrug: '🤷', facepalm: '🤦', sweat: '😅', hug: '🤗', sunglasses: '😎', sad: '🙁', happy: '🙂',
+};
+
+/** ":fire:" -> 🔥 for the words in the list above; anything else is left exactly as typed. */
+function emojify(s) {
+  return String(s).replace(/:([a-z0-9+-]{1,12}):/g, (all, name) => (Object.prototype.hasOwnProperty.call(EMOJI, name) ? EMOJI[name] : all));
+}
+
 function cleanText(s) {
   if (typeof s !== 'string') return '';
   let t = s.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/\t/g, '  ');
@@ -68,4 +80,4 @@ function distance(a, b) {
   return row[n];
 }
 
-module.exports = { cleanText, clock, dayKey, dayLabel, plural, listNames, distance };
+module.exports = { emojify, EMOJI, cleanText, clock, dayKey, dayLabel, plural, listNames, distance };

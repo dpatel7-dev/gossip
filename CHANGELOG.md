@@ -2,6 +2,16 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.4.0
+- Pebble is always around: every start opens with Pebble saying hello (any key skips it), and Pebble now lives at the bottom of the left column.
+- Pebble reacts: picks up the phone when a message arrives, types when you type, dances when you send.
+- Desktop pop-ups for new messages when you're away from the window (macOS and Linux). `gossip config notify preview` adds the message text, `off` stops them.
+- A "new" line shows where the unread messages start when you open a chat.
+- Emoji words: type `:fire:` or `:thumbsup:` and it's sent as the emoji (`gossip config emoji off` to stop).
+- Actions: `/me waves` shows as "* dhruv waves".
+- Fixed: the welcome penguin was hidden whenever you already had a chat open, and in short windows.
+- Fixed: "Show older messages" in the full chat screen repeated messages you could already see.
+
 ## 0.3.0
 - `gossip uninstall` (or `gossip delete`) removes gossip from your computer. It asks first, and lets you keep your account and messages.
 - Update notes: `gossip changelog` shows what changed in each version and when this computer updated.

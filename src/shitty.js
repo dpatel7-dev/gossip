@@ -517,6 +517,11 @@ function run(app, { firstRun = false, notice = null } = {}) {
     // ── wiring ────────────────────────────────────────────────────────────
 
     hook(app, 'line', show);
+    hook(app, 'line', (item) => {
+      if (item.t === 'msg' && item.msg.from !== app.me && !app.muted(item.key) && Date.now() - lastKeyAt > 10000) {
+        require('./notify').message(prefs.val('notify'), item.key, item.msg);
+      }
+    });
     hook(app, 'change', onChange);
     hook(app, 'flash', (text) => {
       flash = { text, until: Date.now() + 3000 };

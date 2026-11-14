@@ -186,6 +186,9 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 ## More things it can do
 
 ```sh
+/me waves                   # (inside a chat) an action: * dhruv waves
+:fire: :thumbsup: :party:   # (inside a chat) typed words become emoji
+gossip config notify off    # stop desktop pop-ups (or: preview, on)
 gossip mute maya            # no sound or unread count for a chat (same command to undo)
 gossip find pizza           # search your saved messages
 gossip export maya          # save a chat to a text file
