@@ -2,6 +2,10 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.7.2
+- gossip has its own call relay now: `gossip turn`. Run it on any always-on machine (one setup command, see docs/HOSTING.md) and your gossip website hands everyone a call login that works for a day. Calls then get through networks that block direct connections, with no outside service or signup.
+- Hide your IP address from people you call: `gossip config call.hideip on` (uses your call relay).
+
 ## 0.7.1
 - Much steadier calls. Your voice now gets top priority on the network, with error correction that fills in lost sound instead of leaving gaps; when the connection gets worse, video gives way first.
 - Calls reconnect by themselves after a network hiccup instead of freezing.
@@ -9,7 +13,6 @@ See this any time with `gossip changelog`, or in the chat: Tab, then "What's new
 - Hardware video encoding on computers that have it: smoother video, less heat and battery.
 - Signal bars in the call show how good the connection is, and hold space to talk while muted.
 - A tip about headphones when both of you are on the same Wi-Fi (two computers in one room echo, which makes sound cut in and out).
-- Relays and gossip websites can hand out a TURN server, which lets calls through networks that block direct connections (see docs/HOSTING.md).
 
 ## 0.7.0
 - Send files and photos, up to 10 MB, end-to-end encrypted: drag a file into the gossip window and press Enter, or `/file ~/Desktop/photo.png`.

@@ -60,31 +60,49 @@ That's it. Send friends the link. They paste the install line, type `gossip`, pi
 ### Make calls work on strict networks (optional, recommended)
 
 Calls go straight between two computers. Some school, office and phone networks
-block that, and then a call can't connect. A **TURN server** fixes it by
-passing the (still end-to-end encrypted) call along when a direct path is
-blocked. Metered has a free one:
+block that, and then a call can't connect. gossip comes with its own **call
+relay** (a "TURN server") that passes the call along when the direct path is
+blocked. The call stays end-to-end encrypted; the relay only sees scrambled
+packets. It also lets people hide their IP address from whoever they call
+(`gossip config call.hideip on`).
 
-1. Make a free account at <https://dashboard.metered.ca/signup> and give the app any name.
-2. Open the **TURN Server** page, click **Add Credential**, then **Show ICE Servers Array**. Copy what it shows.
-3. On PythonAnywhere, open the **Files** tab, go to `gossip-data`, and open (or create) `config.json`.
-4. Put the copied list in it under `"turn"`, so the file looks like this (with your own username and credential):
+It needs a machine that's always on and reachable from the internet - your
+Google Cloud VM is perfect (the smallest free one is plenty). PythonAnywhere
+can't do it, because calls need ports that websites don't get.
+
+1. **On the VM**, install gossip (same line as everyone else) and start the call relay as a service:
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/dpatel7-dev/gossip/main/install.sh | sh
+   sh ~/.gossip/app/deploy/setup-turn.sh
+   ```
+
+   It prints two lines that start with `"turn_server"` and `"turn_secret"`. Copy them.
+
+2. **Open the ports.** From your own computer (or Google Cloud Shell):
+
+   ```sh
+   gcloud compute firewall-rules create gossip-turn --allow tcp:3478,udp:3478,udp:49152-65535
+   ```
+
+3. **Tell your website about it.** On PythonAnywhere, open the **Files** tab, go to `gossip-data`, and open (or create) `config.json`. Paste the two lines between curly brackets, so the file looks like this (with your own numbers):
 
    ```json
    {
-     "turn": [
-       { "urls": "turn:standard.relay.metered.ca:80", "username": "abc123", "credential": "xyz789" },
-       { "urls": "turn:standard.relay.metered.ca:443", "username": "abc123", "credential": "xyz789" },
-       { "urls": "turns:standard.relay.metered.ca:443?transport=tcp", "username": "abc123", "credential": "xyz789" }
-     ]
+     "turn_server": "34.120.5.6:3478",
+     "turn_secret": "9f2c...a71b"
    }
    ```
 
-5. Click **Save**, then press **Reload** on the **Web** page.
+   If the file already has something in it, add a comma after the last line before pasting.
 
-Everyone using your site gets it automatically. It's only used when a direct
-connection fails, so the free allowance goes a long way. (On your own relay:
-`gossip serve --turn "turn:host:3478 username password"`. Just for yourself:
-`gossip config call.turn "turn:host:3478 username password"`.)
+4. Click **Save**, then press **Reload** on the **Web** page.
+
+That's it. Everyone using your site gets a call login that works for a day,
+handed out automatically - nobody types a password. (On your own relay instead:
+`gossip serve --turn-server 34.120.5.6:3478 --turn-secret 9f2c...a71b`.)
+
+If you ever need the two lines again, run `journalctl -u gossip-turn -n 12 -o cat` on the VM.
 
 ### Make it the default for everyone (optional)
 

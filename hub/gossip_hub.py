@@ -271,7 +271,8 @@ CREATE TABLE IF NOT EXISTS aliases(old TEXT PRIMARY KEY, new TEXT);
 
 class Hub:
     def __init__(self, data_dir=None, name='gossip', motd='', signups=True, max_members=LIMIT_MEMBERS,
-                 max_users=20000, max_mb=300, signups_per_hour=30, trust_proxy=False, public_url='', turn=None):
+                 max_users=20000, max_mb=300, signups_per_hour=30, trust_proxy=False, public_url='', turn=None,
+                 turn_server='', turn_secret=''):
         self.name = name
         self.motd = motd
         self.signups = signups
@@ -282,6 +283,8 @@ class Hub:
         self.trust_proxy = trust_proxy
         self.public_url = public_url.rstrip('/')
         self.turn = turn or []
+        self.turn_server = str(turn_server or '').strip()
+        self.turn_secret = str(turn_secret or '').strip()
         self.lock = threading.RLock()
         self.ip_signups = {}
         self.ip_hellos = {}
@@ -570,7 +573,16 @@ class Hub:
 
     def h_ice(self, s, m, now):
         """Extra servers that help calls get through strict networks (TURN), if this site has any."""
-        return {'ice': self.turn}
+        ice = list(self.turn)
+        if self.turn_server and self.turn_secret:
+            # gossip's own call relay (gossip turn): hand out a login that works for a day
+            import hmac
+            username = '%d:%s' % (int(time.time()) + 86400, s['name'])
+            credential = base64.b64encode(hmac.new(self.turn_secret.encode(), username.encode(), hashlib.sha1).digest()).decode()
+            ice.append({'urls': 'stun:' + self.turn_server})
+            ice.append({'urls': ['turn:%s?transport=udp' % self.turn_server, 'turn:%s?transport=tcp' % self.turn_server],
+                        'username': username, 'credential': credential})
+        return {'ice': ice}
 
     def h_sessions(self, s, m, now):
         """Every place your account is open right now (for the dashboard)."""
@@ -1069,6 +1081,8 @@ def _from_env():
         trust_proxy=env.get('GOSSIP_TRUST_PROXY', '1' if 'PYTHONANYWHERE_DOMAIN' in env else '0') == '1',
         public_url=str(env.get('GOSSIP_PUBLIC_URL') or conf.get('public_url') or ''),
         turn=_turn(env.get('GOSSIP_TURN') or conf.get('turn')),
+        turn_server=env.get('GOSSIP_TURN_SERVER') or conf.get('turn_server') or '',
+        turn_secret=env.get('GOSSIP_TURN_SECRET') or conf.get('turn_secret') or '',
     )
 
 

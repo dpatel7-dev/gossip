@@ -63,8 +63,9 @@ class Calls extends EventEmitter {
       const c = this.list.get(id);
       if (!c) return send(404, 'This call is over.\n');
       const ice = await this._ice();
+      const hasRelay = ice.some((x) => [].concat(x.urls).some((u) => /^turns?:/.test(u)));
       return send(200, web.page('call.html', {
-        ice,
+        ice, hideIp: prefs.val('call.hideip') === 'on' && hasRelay,
         id: c.id, role: c.dir === 'out' ? 'caller' : 'callee', me: this.app.me, peer: c.peer, video: c.video, icon: 'phone',
         api: web.url(`callapi/${c.id}`), events: web.url(`callevents/${c.id}`), stun: STUN,
       }), 'text/html; charset=utf-8');
@@ -171,6 +172,9 @@ class Calls extends EventEmitter {
       throw e;
     }
     const url = await this._open(c);
+    if (prefs.val('call.hideip') === 'on' && !(await this._ice()).some((x) => [].concat(x.urls).some((u) => /^turns?:/.test(u)))) {
+      this.app.say("Your IP can't be hidden on this call: your gossip website has no call relay yet (see gossip help: calls).", 'warn');
+    }
     this.app.say(`Calling ${peer}… Your browser has the call window${url ? ` (or open ${url})` : ''}. Hang up: ${this.app.hint('hangup')}`, 'event');
     this.emit('change', c);
     this.app.emit('change');

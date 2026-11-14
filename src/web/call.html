@@ -313,7 +313,7 @@ button { font: inherit; color: inherit; }
 
   // ── the connection ─────────────────────────────────────────────
   function makePc() {
-    pc = new RTCPeerConnection({ iceServers: C.ice, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require', iceCandidatePoolSize: 1 });
+    pc = new RTCPeerConnection({ iceServers: C.ice, iceTransportPolicy: C.hideIp ? 'relay' : 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require', iceCandidatePoolSize: 1 });
     $('them').srcObject = remote;
     ctl = pc.createDataChannel('gossip', { negotiated: true, id: 0 });
     ctl.onopen = tellPeer;
@@ -434,7 +434,7 @@ button { font: inherit; color: inherit; }
       .then(gathered)
       .then(function () {
         post({ t: 'offer', sdp: pc.localDescription.sdp });
-        show('Ringing ' + C.peer + '…', 'Calls connect your computers directly, so ' + C.peer + ' will see your IP address.');
+        show('Ringing ' + C.peer + '…', C.hideIp ? 'Your IP address is hidden from ' + C.peer + ' - the call goes through your call relay.' : 'Calls connect your computers directly, so ' + C.peer + ' will see your IP address. (To hide it: gossip config call.hideip on)');
         state('ringing', 'warn');
       }).catch(noMic);
   }

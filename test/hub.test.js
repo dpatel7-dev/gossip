@@ -206,6 +206,20 @@ test('website: servers, invites, kicking, presence, typing and blocking', opts, 
   assert.equal(hub.errors(), '');
 });
 
+test('website: hands out day-long logins for its call relay', opts, async () => {
+  const hub = await startHub({ GOSSIP_TURN_SERVER: '203.0.113.10:3478', GOSSIP_TURN_SECRET: 'sesame' });
+  const ann = await signUp(hub, 'ann');
+  try {
+    const { ice } = await ann.link.request('ice', {});
+    const turn = ice.find((x) => Array.isArray(x.urls));
+    assert.deepEqual(turn.urls, ['turn:203.0.113.10:3478?transport=udp', 'turn:203.0.113.10:3478?transport=tcp']);
+    assert.match(turn.username, /^\d+:ann$/);
+    assert.equal(turn.credential, require('crypto').createHmac('sha1', 'sesame').update(turn.username).digest('base64'), 'the call relay will accept it');
+  } finally {
+    await ann.closeGracefully();
+  }
+});
+
 test('website: serves the page and an installer that points back at itself', opts, async () => {
   const hub = await startHub();
   const get = async (p) => {

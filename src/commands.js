@@ -989,6 +989,7 @@ function helpRows(shell, view) {
     rows.push([['  ' + 'gossip mini'.padEnd(w), null], ['A tiny chat for the corner of your screen, with quick replies', 'dim']]);
     rows.push([['  ' + 'gossip nearby'.padEnd(w), null], ['Chat with people on the same Wi-Fi or cable - no internet needed', 'dim']]);
     rows.push([['  ' + 'gossip serve'.padEnd(w), null], ['Run your own relay (gossip serve --help)', 'dim']]);
+    rows.push([['  ' + 'gossip turn'.padEnd(w), null], ['Run a call relay so calls get through strict networks (gossip turn --help)', 'dim']]);
     rows.push([['  ' + 'gossip uninstall'.padEnd(w), null], ['Remove gossip from this computer (also: gossip delete)', 'dim']]);
     rows.push([['  ' + 'gossip update'.padEnd(w), null], ['Get the latest version', 'dim']]);
     rows.push([['Names work bare: "gossip squawk maya hi", "gossip squawk gamedev hi".', 'dim']]);

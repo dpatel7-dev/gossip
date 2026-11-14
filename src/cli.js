@@ -560,6 +560,7 @@ async function main(argv) {
   if (word === 'update') return update();
   if (word === 'uninstall' || word === 'delete') return uninstall(rest);
   if (word === 'nearby') return nearby(rest, view);
+  if (word === 'turn') return require('./turn').main(rest);
   if (word === 'mini' || word === 'corner') return live({ view: 'mini' });
   if (word === 'call' || word === 'video') return live({ view, startup: [word, ...rest].join(' ') });
   if (word === 'dashboard' || word === 'dash') return live({ view, startup: 'dashboard' });
@@ -581,7 +582,7 @@ async function main(argv) {
 
   const cmd = find(word);
   if (!cmd || cmd.where === 'shell') {
-    const close = didYouMean(word, ['check', 'listen', 'nearby', 'serve', 'update', 'uninstall']);
+    const close = didYouMean(word, ['check', 'listen', 'nearby', 'serve', 'turn', 'update', 'uninstall']);
     die(`There's no "gossip ${word}".${close ? ` Did you mean: gossip ${close}?` : ''} See them all: gossip help`, 2);
   }
   return oneShot(cmd, rest);
