@@ -194,3 +194,24 @@ test('small things: emoji words, actions, notification commands', () => {
   assert.equal(notify.command('t', 'b', 'win32'), null);
   assert.equal(notify.message('off', '@ben', { from: 'ben', text: 'x' }), false);
 });
+
+test('penguin: the blocky style uses nothing but whole coloured cells', () => {
+  const A = require('../src/ansi');
+  const before = A.getLevel();
+  A.setLevel(3);
+  try {
+    for (const scene of M.SCENE_NAMES) {
+      const frames = [{ lines: M.still(scene, { style: 'blocky' }) }, ...M.play(scene, { style: 'blocky', loops: 1 })];
+      for (const f of frames) {
+        assert.equal(f.lines.length, M.HEIGHT);
+        for (const line of f.lines) {
+          assert.equal(A.vwidth(line), M.WIDTH);
+          assert.doesNotMatch(A.strip(line), /[▀▄█]/, 'no half or full block characters');
+          assert.doesNotMatch(line, /\x1b\[[0-9;]*\b7m/, 'no inverse video');
+        }
+      }
+    }
+  } finally {
+    A.setLevel(before);
+  }
+});

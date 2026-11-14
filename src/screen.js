@@ -135,7 +135,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     function welcomeLines(w, h) {
       const lines = [];
-      const look = prefs.val('theme') + Th.spriteMode();
+      const look = prefs.val('theme') + Th.spriteMode() + M.styleNow();
       if (!still || still.look !== look) still = { look, lines: M.still(scene0, spriteOpts()) };
       const sprite = stage ? stage.frames[stage.i].lines : (prefs.val('mascot') !== 'off' ? still.lines : null);
       if (sprite && h >= M.HEIGHT + 2) {
@@ -395,7 +395,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     function petLines() {
       if (pet.frames) return pet.frames[pet.i].lines;
-      const look = prefs.val('theme') + Th.spriteMode();
+      const look = prefs.val('theme') + Th.spriteMode() + M.styleNow();
       if (!still || still.look !== look) still = { look, lines: M.still(scene0, spriteOpts()) };
       return still.lines;
     }

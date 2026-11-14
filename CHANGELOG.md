@@ -2,6 +2,10 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.4.2
+- A new blocky Pebble, drawn only with whole coloured squares, so no terminal can stripe it. macOS Terminal gets it automatically; choose yourself with `gossip config mascot.style blocky` or `smooth`.
+- Fixed black notches around Pebble that 0.4.1 introduced in macOS Terminal.
+
 ## 0.4.1
 - Fixed the thin stripes across Pebble in macOS Terminal: the penguin is now drawn so line spacing can't show through.
 
