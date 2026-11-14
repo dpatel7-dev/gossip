@@ -2,6 +2,9 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.5.1
+- Fixed Pebble not reacting to what you do. Pebble now also stays in the pose afterwards (typing, phone or dance) until something else happens.
+
 ## 0.5.0
 - Change your username: `gossip rename newname`. Your chats, servers and contacts come with you, the people you talk to are switched over automatically, and nobody else can take your old name.
 - `gossip mini`: a tiny chat for the corner of your screen while you work. Messages from every chat scroll by, and replies go to whoever wrote last. Tab picks someone else. Also in the menu as "Shrink to the corner".

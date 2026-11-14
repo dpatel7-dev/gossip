@@ -58,7 +58,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
     let focused = true;
     let focusKnown = false; // some terminals never say
     let booting = false;
-    const pet = { scene: null, frames: null, i: 0, timer: null }; // Pebble, in the corner
+    const pet = { scene: null, pose: null, frames: null, at: 0, total: 0, timer: null }; // Pebble, in the corner
 
     const host = () => {
       try { return new URL(app.serverUrl).host; } catch { return app.serverUrl || 'no relay set'; }
@@ -394,29 +394,43 @@ function run(app, { firstRun = false, notice = null } = {}) {
       });
     }
 
+    // Pebble in the corner. He acts out what's happening - typing when you type,
+    // on the phone when a message comes in, dancing when you send - and then stays
+    // in that pose until something else happens. The frame to show is worked out
+    // from the clock each time the screen is drawn, so nothing can get stuck.
+    let petStill = null;
     function petLines() {
-      if (pet.frames) return pet.frames[pet.i].lines;
-      const look = prefs.val('theme') + Th.spriteMode() + M.styleNow();
-      if (!still || still.look !== look) still = { look, lines: M.still(scene0, spriteOpts()) };
-      return still.lines;
+      if (pet.frames) {
+        let t = Date.now() - pet.at;
+        for (const f of pet.frames) {
+          if (t < f.ms) return f.lines;
+          t -= f.ms;
+        }
+        petRest();
+      }
+      const pose = pet.pose || scene0;
+      const look = pose + prefs.val('theme') + Th.spriteMode() + M.styleNow();
+      if (!petStill || petStill.look !== look) petStill = { look, lines: M.still(pose, spriteOpts()) };
+      return petStill.lines;
     }
 
-    /** Pebble reacts: on the phone when a message comes in, typing when you type, a dance when you send. */
+    function petRest() {
+      pet.frames = null;
+      clearInterval(pet.timer);
+      pet.timer = null;
+    }
+
     function react(scene) {
-      if (closed || prefs.val('mascot') === 'off' || !prefs.on('mascot.animate')) return;
-      if (pet.frames && pet.scene === scene) return;
-      clearTimeout(pet.timer);
+      if (closed || prefs.val('mascot') === 'off') return;
+      pet.pose = scene;
+      if (!prefs.on('mascot.animate')) { schedule(); return; }
+      const now = Date.now();
+      if (pet.frames && pet.scene === scene && now - pet.at < pet.total - 200) return; // already at it
       pet.scene = scene;
       pet.frames = M.play(scene, { ...spriteOpts(), loops: 1 });
-      pet.i = 0;
-      const step = () => {
-        if (closed || !pet.frames) return;
-        pet.i++;
-        if (pet.i >= pet.frames.length) pet.frames = null;
-        else pet.timer = setTimeout(step, pet.frames[pet.i].ms);
-        schedule();
-      };
-      pet.timer = setTimeout(step, pet.frames[0].ms);
+      pet.total = pet.frames.reduce((n, f) => n + f.ms, 0);
+      pet.at = now;
+      if (!pet.timer) pet.timer = setInterval(schedule, 70);
       schedule();
     }
 
@@ -442,7 +456,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
       if (closed) return;
       closed = true;
       clearInterval(ticker);
-      clearTimeout(pet.timer);
+      clearInterval(pet.timer);
       if (stage) stage.stop();
       for (const [target, event, fn] of hooks) target.removeListener(event, fn);
       restore();
@@ -581,6 +595,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
       text = text.replace(BG_RE, (all, r, g, b) => {
         M.setBackdrop([r, g, b].map((h) => parseInt(h.slice(0, 2), 16)));
         still = null;
+        petStill = null;
         prev = [];
         schedule();
         return '';
@@ -656,6 +671,7 @@ function run(app, { firstRun = false, notice = null } = {}) {
 
     const ticker = setInterval(() => {
       app.tick();
+      if (pet.frames && Date.now() - pet.at > pet.total) petRest();
       if (flash && flash.until <= Date.now()) flash = null;
       schedule();
     }, 250);
