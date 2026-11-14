@@ -12,6 +12,7 @@ const readline = require('readline');
 const A = require('./ansi');
 const R = require('./render');
 const Th = require('./theme');
+const P = require('./paper');
 const prefs = require('./prefs');
 const notify = require('./notify');
 const { Editor } = require('./editor');
@@ -91,8 +92,9 @@ function run(app, { back = null } = {}) {
       const callLine = call ? (call.state === 'ringing' ? `${call.peer} is calling · enter answers` : `${call.state === 'live' ? '● call with' : 'calling'} ${call.peer} · /hangup`) : null;
       const hint = flash && flash.until > Date.now() ? flash.text : (callLine || app.typingText() || `tab: switch · enter: send · esc: ${back ? 'full chat' : 'quit'}`);
       lines.push(' ' + Th.dim(A.ellipsis(hint, W - 2)));
-      let buf = '\x1b[?2026h\x1b[?25l\x1b[H';
-      for (let y = 0; y < lines.length; y++) buf += `\x1b[${y + 1};1H\x1b[2K${lines[y]}${A.RESET}`;
+      const paint = P.sync(); // (the daylight theme paints the window light)
+      let buf = '\x1b[?2026h\x1b[?25l' + (paint ? paint + P.ink() + '\x1b[2J' : '') + '\x1b[H';
+      for (let y = 0; y < lines.length; y++) buf += `\x1b[${y + 1};1H` + A.paperize(`\x1b[2K${lines[y]}${A.RESET}`);
       buf += `\x1b[${H - 1};${pw + lay.col + 1}H\x1b[?25h\x1b[?2026l`;
       out.write(buf);
     }
@@ -112,7 +114,7 @@ function run(app, { back = null } = {}) {
       clearInterval(ticker);
       for (const [target, event, fn] of hooks) target.removeListener(event, fn);
       try {
-        out.write((shrink ? `\x1b[8;${was.rows};${was.cols}t` : '') + '\x1b[?2004l\x1b[?25h\x1b[?1049l');
+        out.write(P.restore() + (shrink ? `\x1b[8;${was.rows};${was.cols}t` : '') + '\x1b[?2004l\x1b[?25h\x1b[?1049l');
       } catch { /* terminal gone */ }
       try { inp.setRawMode(false); } catch { /* not a tty any more */ }
       inp.pause();
@@ -172,7 +174,7 @@ function run(app, { back = null } = {}) {
     hook(inp, 'keypress', onKey);
     hook(out, 'resize', schedule);
     // Ask the terminal to make its window small (most do; the rest ignore this).
-    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h' + (shrink ? `\x1b[8;${ROWS};${COLS}t` : ''));
+    out.write('\x1b[?1049h' + P.sync() + P.ink() + '\x1b[2J\x1b[?2004h' + (shrink ? `\x1b[8;${ROWS};${COLS}t` : ''));
     if (!app.link) app.connect().catch(() => {});
     add(Th.dim('· Messages from all your chats show up here.'));
     const ticker = setInterval(() => {

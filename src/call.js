@@ -34,6 +34,14 @@ class Calls extends EventEmitter {
     this.web = null;
     this.stunUsed = 0;
     app.on('signal', (s) => this._signal(s).catch(() => {}));
+    app.on('line', (item) => this._chatLine(item));
+  }
+
+  /** Messages with the person you're on a call with also show in the call window. */
+  _chatLine(item) {
+    const c = this.current;
+    if (!c || !item || item.t !== 'msg' || item.key !== '@' + c.peer || !item.msg) return;
+    this._tell(c, chatEvent(this.app, item.msg));
   }
 
   /** The call that's happening (or ringing) right now, if any. */
@@ -77,6 +85,10 @@ class Calls extends EventEmitter {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
       const write = (ev) => res.write(`data: ${JSON.stringify(ev)}\n\n`);
       write({ t: 'hello', state: c.state });
+      // the last few messages, so the call window's chat starts with some context
+      for (const r of this.app.vault.loadHistory('@' + c.peer, 6)) {
+        if (typeof r.text === 'string' && typeof r.from === 'string') write({ ...chatEvent(this.app, r), old: true });
+      }
       if (c.remoteSdp) write({ t: c.dir === 'out' ? 'answer' : 'offer', sdp: c.remoteSdp });
       if (!ACTIVE.has(c.state)) write({ t: 'end', reason: c.reason || 'ended' });
       c.pages.add(write);
@@ -250,6 +262,9 @@ class Calls extends EventEmitter {
         kind: String(m.route.kind || '').slice(0, 20), remote: String(m.route.remote || '').slice(0, 60),
         proto: String(m.route.proto || '').slice(0, 8), rtt: Number(m.route.rtt) || null,
       };
+    } else if (m.t === 'say' && typeof m.text === 'string' && m.text.trim() && ACTIVE.has(c.state)) {
+      // typed in the call window: an ordinary (encrypted, saved) message to them
+      this.app.send('@' + c.peer, m.text.slice(0, 2000)).catch((e) => this._tell(c, { t: 'note', text: `Not sent: ${e.message}` }));
     } else if (m.t === 'failed' && ACTIVE.has(c.state)) {
       await this._end(c, 'connection failed');
       this.app.say(`The call with ${c.peer} couldn't connect${m.why ? `: ${String(m.why).slice(0, 120)}` : ''}.`, 'err');
@@ -332,6 +347,11 @@ class Calls extends EventEmitter {
       }
     }
   }
+}
+
+function chatEvent(app, msg) {
+  const text = msg.file ? `[file] ${msg.file.name || 'a file'}` : String(msg.text || '');
+  return { t: 'msg', from: msg.from, mine: msg.from === app.me, text: text.slice(0, 2000), ts: msg.ts };
 }
 
 function duration(ms) {

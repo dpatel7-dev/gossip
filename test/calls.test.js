@@ -114,6 +114,12 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     await request(ann.web.url(`callapi/${out.id}`), { method: 'POST', body: { t: 'stats', route: { kind: 'direct', remote: '198.51.100.7:5000', proto: 'udp', rtt: 30 } } });
     assert.equal(out.state, 'live');
 
+    // chat during the call: typed in ann's call window, it's an ordinary message to ben - and shows in his call window too
+    await request(ann.web.url(`callapi/${out.id}`), { method: 'POST', body: { t: 'say', text: 'can you hear me?' } });
+    await until(() => benEvents.some((e) => e.t === 'msg' && e.from === 'ann' && !e.mine && e.text === 'can you hear me?'), "ann's call-window message to reach ben's call window");
+    await until(() => ben.vault.loadHistory('@ann', 5).some((r) => r.text === 'can you hear me?'), 'it to be saved like any message');
+    await until(() => annEvents.some((e) => e.t === 'msg' && e.mine && e.text === 'can you hear me?'), 'it to show in her own call window');
+
     // a network hiccup: ben's browser asks for a fresh connection, ann's builds one, ben's answers
     await request(ben.web.url(`callapi/${inc.id}`), { method: 'POST', body: { t: 'restart' } });
     await until(() => annEvents.some((e) => e.t === 'restart'), "ann's browser to be asked to reconnect");
@@ -133,6 +139,27 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     assert.ok(snap.outbound.some((o) => o.what === 'Call with ben' && o.where === '198.51.100.7:5000'));
     assert.ok(snap.chats.some((c) => c.key === '@ben' && c.readers.map((r) => r.name).join() === 'ann,ben'));
     assert.ok(snap.activity.some((a) => /On a call with ben/.test(a.text)));
+    assert.ok(snap.people.some((p) => p.name === 'ben' && p.last && /can you hear me/.test(p.last.text)));
+    assert.equal(snap.callNow, 'ben');
+    assert.ok(snap.settings.theme.choices.includes('daylight'));
+
+    // things you can do from the dashboard
+    const act = async (body) => JSON.parse((await request(ann.web.url('dashact'), { method: 'POST', body })).text);
+    assert.equal((await act({ do: 'set', key: 'calls', value: 'everyone' })).ok, true);
+    assert.equal(require('../src/prefs').val('calls'), 'everyone');
+    assert.equal((await act({ do: 'set', key: 'files', value: '/etc' })).ok, false, 'only a few settings can be changed from the page');
+    await act({ do: 'dnd', for: '1h' });
+    assert.ok(ann.dndActive());
+    await act({ do: 'dnd', for: 'off' });
+    assert.equal(ann.dndActive(), false);
+    await act({ do: 'send', to: 'ben', text: 'from the dashboard' });
+    await until(() => ben.vault.loadHistory('@ann', 5).some((r) => r.text === 'from the dashboard'), 'the dashboard message to arrive');
+    assert.equal((await act({ do: 'send', to: 'stranger', text: 'hi' })).ok, false, 'only to your contacts');
+    ann.schedule('later', { at: Date.now() + 3600000, key: '@ben', text: 'later on' });
+    const id = ann.scheduled('later')[0].id;
+    assert.equal(JSON.parse((await request(ann.web.url('dashapi'))).text).scheduled.later[0].text, 'later on');
+    assert.equal((await act({ do: 'unschedule', kind: 'later', id })).ok, true);
+    assert.equal(ann.scheduled('later').length, 0);
 
     await runCommand(ann.ctx, 'hangup');
     await until(() => inc.state === 'ended', 'ben to hear the hang-up');

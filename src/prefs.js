@@ -22,6 +22,7 @@ const OPTIONS = [
   { key: 'view', choices: ['full', 'classic'], def: 'full', desc: 'The full chat screen, or the classic scrolling look' },
   { key: 'mouse', choices: ['on', 'off'], def: 'on', desc: 'Click and scroll in the full chat screen (off = select text freely)' },
   { key: 'theme', choices: THEME_NAMES, def: 'arctic', desc: 'Colour scheme' },
+  { key: 'background', choices: ['auto', 'theme', 'terminal'], def: 'auto', desc: "Paint gossip's own background: auto (daylight turns your terminal light), theme (every theme), terminal (never - keep your terminal's)" },
   { key: 'mascot', choices: ['random', 'dance', 'phone', 'laptop', 'off'], def: 'random', desc: 'What the penguin is up to when gossip opens' },
   { key: 'mascot.style', choices: ['auto', 'blocky', 'smooth'], def: 'auto', desc: 'How the penguin is drawn: blocky never shows stripes (auto picks it on macOS Terminal), smooth has more detail' },
   { key: 'mascot.animate', choices: ['on', 'off'], def: 'on', desc: 'Let the penguin move (off = a still picture)' },

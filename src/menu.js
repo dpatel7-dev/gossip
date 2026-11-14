@@ -29,6 +29,27 @@ function confirm(title, yes, action) {
   return () => ({ title, items: [{ label: yes, run: action }, { label: 'Never mind', run: () => 'back' }] });
 }
 
+function quietPage(m) {
+  return {
+    title: 'Do not disturb',
+    items: [['30 minutes', '30m'], ['1 hour', '1h'], ['2 hours', '2h'], ['Until tomorrow morning', 'tomorrow 8am'], ['Until I turn it off', '']]
+      .map(([label, t]) => ({ label, run: run(m, ('dnd ' + t).trim()) })),
+  };
+}
+
+function laterPage(m) {
+  const app = m.ctx.app;
+  return {
+    title: 'Reminders and later messages',
+    items: [
+      { label: 'Remind me…', desc: 'like: 10m stretch, or 5pm call mom', run: ask('Remind me', 'When, and what', 'For example: 10m stretch · 5pm call mom · tomorrow 9am gym', (t) => m.run('remind ' + t)) },
+      ...(app.target ? [{ label: `Send ${app.target} a message later…`, desc: 'like: 8am happy birthday!', run: ask(`Message ${app.target} later`, 'When, and the message', 'For example: 30m see you soon · tomorrow 8am happy birthday!', (t) => m.run(`later ${app.target} ${t}`)) }] : []),
+      { label: 'My reminders', desc: plural(app.scheduled('reminders').length, 'reminder'), run: run(m, 'remind') },
+      { label: 'My scheduled messages', desc: plural(app.scheduled('later').length, 'message'), run: run(m, 'later') },
+    ],
+  };
+}
+
 function root(m) {
   return {
     title: 'Menu',
@@ -39,6 +60,10 @@ function root(m) {
       { label: 'People', desc: 'contacts, blocking, safety numbers', run: () => peoplePage },
       { label: 'Make it yours', desc: 'colours, penguin, layout, every setting', run: () => looks },
       { label: 'This chat', desc: 'mute, search, save to a file', run: () => thisChat },
+      m.ctx.app.dndActive()
+        ? { label: 'Turn off do not disturb', desc: 'sounds and pop-ups back on', run: run(m, 'dnd off') }
+        : { label: 'Do not disturb', desc: 'no sounds or pop-ups for a while', run: () => quietPage(m) },
+      { label: 'Reminders and later messages', desc: 'remind yourself, or send something later', run: () => laterPage(m) },
       ...(m.ctx.goMini ? [{ label: 'Shrink to the corner', desc: 'a tiny chat with quick replies while you work', run: () => m.ctx.goMini() }] : []),
       { label: 'Dashboard', desc: 'connections and who can see what, in your browser', run: run(m, 'dashboard') },
       { label: 'Check for updates', desc: 'without leaving the chat', run: run(m, 'update') },

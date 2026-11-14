@@ -152,7 +152,8 @@ gossip theme                     # preview all colour schemes
 
 | Setting | Choices | What it does |
 | --- | --- | --- |
-| `theme` | `arctic` `ember` `aurora` `daylight` `terminal` `mono` | Colour scheme |
+| `theme` | `arctic` `ember` `aurora` `daylight` `terminal` `mono` | Colour scheme (`daylight` turns gossip light, even in a dark terminal) |
+| `background` | `auto` `theme` `terminal` | Paint gossip's own background: `auto` = only daylight does, `theme` = every theme, `terminal` = never |
 | `mascot` | `random` `dance` `phone` `laptop` `off` | What the penguin is doing when gossip opens |
 | `mascot.animate` | `on` `off` | Let the penguin move, or show a still picture |
 | `mascot.speed` | `slow` `normal` `fast` | How quickly it moves |
@@ -192,7 +193,12 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 /files   /open             # (inside a chat) list the files in a chat, open the newest
 /call maya                  # (inside a chat) voice call, in your browser; /video maya for video
 /answer  /decline  /hangup  # (inside a chat) or just Enter / Esc while it rings
-/dashboard                  # (inside a chat) every connection, who can read what, activity
+                            # in a call: t chat, 1-5 reactions, d pick mic/camera/speaker, p pop out, f fullscreen
+/dashboard                  # (inside a chat) every connection, who can read what, activity -
+                            # and call, message or change settings right from the page
+/remind 10m stretch         # (inside a chat) a reminder; /remind 5pm call mom, /remind lists them
+/later 8am happy birthday!  # (inside a chat) send to this chat later; /later lists them
+/dnd 1h                     # (inside a chat) do not disturb: no sounds or pop-ups (/dnd off)
 /update  then  /restart     # (inside a chat) get the newest version without leaving
 gossip mini                 # a tiny chat for the corner of your screen, with quick replies
 gossip rename newname       # change your username; chats, servers and contacts come along

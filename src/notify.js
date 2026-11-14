@@ -11,6 +11,10 @@
 const { spawn } = require('child_process');
 
 let last = 0;
+let quiet = () => false; // do not disturb (set by the app)
+
+/** Who decides when pop-ups should stay away: a function returning true for quiet. */
+function setQuiet(fn) { quiet = typeof fn === 'function' ? fn : () => false; }
 
 const tidy = (s, max) => String(s || '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max);
 
@@ -24,7 +28,8 @@ function command(title, body, platform = process.platform) {
   return null;
 }
 
-function send(title, body) {
+function send(title, body, { force = false } = {}) {
+  if (!force && quiet()) return false;
   const now = Date.now();
   if (now - last < 3000) return false; // a burst of messages is one pop-up, not twenty
   const cmd = command(tidy(title, 80), tidy(body, 160));
@@ -45,4 +50,4 @@ function message(mode, key, msg) {
   return send('gossip', mode === 'preview' ? `${where}: ${msg.text}` : `New message from ${where}`);
 }
 
-module.exports = { send, message, command };
+module.exports = { setQuiet, send, message, command };

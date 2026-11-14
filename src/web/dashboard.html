@@ -64,6 +64,28 @@ ul.plain li { padding: .12em 0; }
 .who { display: flex; flex-wrap: wrap; gap: .2em 2.5ch; margin-top: .15em; }
 .note { margin: .9em 0 0; font-size: .92em; }
 .log li { display: grid; grid-template-columns: 9ch 1fr; gap: 1ch; }
+.stack { display: grid; gap: 2em; align-content: start; }
+
+/* people: a row each, with things to do */
+.person { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .1em 2ch; padding: .45em 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); align-items: center; }
+.person:first-child { border-top: 0; padding-top: 0; }
+.person .last { grid-column: 1 / -1; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person .do { display: flex; gap: .6ch; }
+.mini { background: none; border: 1px solid var(--border); border-radius: 5px; padding: 0 1ch; cursor: pointer; }
+.mini:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mini:disabled { opacity: .4; cursor: default; }
+.mini[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.write { grid-column: 1 / -1; display: flex; gap: 1ch; margin-top: .3em; }
+.write span { color: var(--accent2); font-weight: 700; }
+.write input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px solid var(--border); color: inherit; font: inherit; outline: none; padding: .1em 0; }
+.write input:focus { border-color: var(--accent); }
+
+/* quick settings */
+.set { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .45em 2ch; align-items: center; }
+.set label { color: var(--dim); white-space: nowrap; }
+.set select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .1em .5ch; min-width: 0; max-width: 100%; }
+.row { display: flex; flex-wrap: wrap; gap: .5ch 1ch; align-items: center; }
+.ping { color: var(--accent); letter-spacing: .02em; }
 footer { margin-top: 2em; color: var(--dim); }
 @media (max-width: 1000px) { .w4, .w5, .w6, .w7, .w8 { grid-column: span 12; } }
 </style>
@@ -84,13 +106,19 @@ footer { margin-top: 2em; color: var(--dim); }
   <section class="box w4"><h2>Who is signed in as you</h2><div id="sessions"></div></section>
   <section class="box w4"><h2>Security</h2><div id="checks"></div></section>
 
+  <section class="box w7"><h2>People</h2><span class="aside" id="peopleAside"></span><div id="people"></div></section>
+  <section class="box w5"><h2>Quick settings</h2><div id="settings"></div></section>
+
   <section class="box w12"><h2>Every connection gossip makes</h2><div id="outbound"></div><div id="listening"></div></section>
 
   <section class="box w7"><h2>Who can read what</h2><div id="chats"></div><p class="dim note">Whatever passes messages along sees who talks to whom, and when. Never what.</p></section>
   <section class="box w5"><h2>Your gossip</h2><div id="stats"></div></section>
 
   <section class="box w7"><h2>Activity</h2><ul class="plain log" id="log"></ul></section>
-  <section class="box w5"><h2>Calls</h2><div id="calls"></div></section>
+  <div class="w5 stack">
+    <section class="box"><h2>Calls</h2><div id="calls"></div></section>
+    <section class="box"><h2>Coming up</h2><div id="coming"></div></section>
+  </div>
 </div>
 <footer>Updates every couple of seconds while gossip is open. Only this computer can see this page.</footer>
 
@@ -99,7 +127,7 @@ footer { margin-top: 2em; color: var(--dim); }
   'use strict';
   var C = __CONFIG__;
   var $ = function (id) { return document.getElementById(id); };
-  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
   var ago = function (ts) {
     if (!ts) return '';
     var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -191,7 +219,7 @@ footer { margin-top: 2em; color: var(--dim); }
       ['address', esc(t.remote || '-')],
       ['encryption', t.tls ? '<span class="ok">' + esc(t.tls.protocol || 'TLS') + '</span> <span class="dim">' + esc(t.tls.cipher || '') + '</span>' : (/localhost|127\./.test(c.url) ? '<span class="dim">not needed (this computer)</span>' : c.kind === 'nearby host' ? '<span class="dim">local network</span>' : c.url ? '<span class="err">none on the connection</span> <span class="dim">(messages still are)</span>' : '-')],
       ['certificate', t.tls ? esc(t.tls.subject || '?') + ' <span class="dim">by ' + esc(t.tls.issuer || '?') + (t.tls.verified ? ', verified' : ', NOT verified') + (t.tls.validTo ? ', until ' + esc(t.tls.validTo.replace(/ \d\d:\d\d:\d\d/, '')) : '') + '</span>' : '<span class="dim">-</span>'],
-      ['round trip', c.ping != null ? c.ping + ' ms' : '-'],
+      ['round trip', c.ping != null ? c.ping + ' ms <span class="ping" title="the last couple of minutes">' + spark(pings) + '</span>' : '-'],
       ['connected', c.since ? ago(c.since).replace(' ago', '') + (c.reconnects ? ' <span class="dim">(' + c.reconnects + ' reconnect' + (c.reconnects === 1 ? '' : 's') + ')</span>' : '') : '-'],
       ['traffic', t.remote ? '↑ ' + bytes(t.bytesOut) + '  ↓ ' + bytes(t.bytesIn) : '-'],
       ['this session', S.counts.sent + ' sent · ' + S.counts.received + ' received'],
@@ -249,11 +277,19 @@ footer { margin-top: 2em; color: var(--dim); }
     // stats
     var hst = S.history, blocks = ' ▁▂▃▄▅▆▇█', max = 1;
     hst.days.forEach(function (d) { max = Math.max(max, d.sent + d.received); });
-    var spark = hst.days.map(function (d) { var n = d.sent + d.received; return n ? blocks[Math.max(1, Math.round(n / max * 8))] : '·'; }).join('');
+    var days14 = hst.days.map(function (d) { var n = d.sent + d.received; return n ? blocks[Math.max(1, Math.round(n / max * 8))] : '·'; }).join('');
     var dname = function (ts) { return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
-    if (!hst.sent && !hst.received) { $('stats').innerHTML = '<p class="dim">No messages saved on this computer yet. Say hi to someone!</p>'; } else $('stats').innerHTML = '<div class="spark acc">' + spark + '</div><div class="axis"><span>' + dname(hst.days[0].day) + '</span><span>today</span></div>' +
+    if (!hst.sent && !hst.received) { $('stats').innerHTML = '<p class="dim">No messages saved on this computer yet. Say hi to someone!</p>'; } else $('stats').innerHTML = '<div class="spark acc">' + days14 + '</div><div class="axis"><span>' + dname(hst.days[0].day) + '</span><span>today</span></div>' +
       '<dl class="kv" style="margin-top:1em"><dt>sent</dt><dd>' + hst.sent + '</dd><dt>received</dt><dd>' + hst.received + '</dd><dt>chats</dt><dd>' + hst.chats + '</dd>' +
       '<dt>files</dt><dd>' + hst.files + '</dd>' + (hst.top.length ? '<dt>busiest</dt><dd>' + hst.top.map(function (x) { return esc(x.key) + ' <span class="dim">' + x.n + '</span>'; }).join(', ') + '</dd>' : '') + '</dl>';
+
+    var st = S.storage;
+    if (st) $('stats').insertAdjacentHTML('beforeend', '<dl class="kv" style="margin-top:.2em"><dt>on disk</dt><dd>' + bytes(st.history.bytes) + ' of messages · ' + bytes(st.files.bytes) + ' in ' + st.files.count + ' file' + (st.files.count === 1 ? '' : 's') + ' you were sent</dd></dl>' +
+      '<button class="act" data-act="openfiles" title="' + esc(st.files.dir) + '">open the files folder</button>');
+
+    renderPeople();
+    renderSettings();
+    renderComing();
 
     // activity
     var kinds = { warn: 'warn', err: 'err', ok: 'ok', event: 'acc', net: 'dim', call: 'acc2' };
@@ -274,11 +310,135 @@ footer { margin-top: 2em; color: var(--dim); }
     drawMap();
   }
 
+  // ── people, settings, what's coming up: the parts you can act on ──
+  function act(body) {
+    return fetch(C.act, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, error: 'gossip was closed' }; });
+  }
+  // Redraw a box only when what's in it changed, and never while you're typing or choosing in it.
+  var painted = {};
+  function paint(id, html) {
+    var el = $(id), a = document.activeElement;
+    if (painted[id] === html) return;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT') && el.contains(a)) return;
+    painted[id] = html;
+    el.innerHTML = html;
+  }
+  var pings = [];
+  function spark(list) {
+    if (list.length < 2) return '';
+    var max = Math.max.apply(null, list), min = Math.min.apply(null, list), b = '▁▂▃▄▅▆▇█';
+    return list.map(function (v) { return b[max === min ? 0 : Math.round((v - min) / (max - min) * 7)]; }).join('');
+  }
+  var clock = function (ts) { return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); };
+  function when(ts) {
+    var ms = ts - Date.now();
+    if (ms < 0) return 'now';
+    var mins = Math.max(1, Math.round(ms / 60000));
+    if (mins < 60) return 'in ' + mins + 'm';
+    if (new Date(ts).toDateString() === new Date().toDateString()) return clock(ts);
+    return new Date(ts).toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + clock(ts);
+  }
+
+  var writing = null, draft = ''; // whose message box is open, and what's typed in it
+  function renderPeople() {
+    var list = S.people || [], busy = !!S.callNow;
+    var on = list.filter(function (p) { return p.online === true; }).length;
+    $('peopleAside').textContent = list.length ? on + ' of ' + list.length + ' online' : '';
+    if (!list.length) return paint('people', '<p class="dim">No contacts yet. In gossip, press Tab, then Add a person.</p>');
+    paint('people', list.map(function (p) {
+      var name = esc(p.name), off = busy || p.changed ? ' disabled' : '';
+      var tag = p.changed ? ' <span class="warn">key changed!</span>' : p.verified ? ' <span class="ok" title="safety number checked">✓</span>' : '';
+      var last = p.last ? (p.last.mine ? 'you: ' : '') + esc(p.last.text) + ' · ' + ago(p.last.ts) : 'no messages yet';
+      return '<div class="person"><span>' + dot(p.online) + ' <b>' + name + '</b>' + tag + (p.muted ? ' <span class="pill">muted</span>' : '') + '</span>' +
+        '<span class="do"><button class="mini" data-act="write" data-who="' + name + '" aria-pressed="' + (writing === p.name) + '">message</button>' +
+        '<button class="mini" data-act="call" data-who="' + name + '"' + off + ' title="voice call">call</button>' +
+        '<button class="mini" data-act="video" data-who="' + name + '"' + off + ' title="video call">video</button></span>' +
+        '<span class="last">' + last + '</span>' +
+        (writing === p.name ? '<form class="write" data-who="' + name + '"><span>›</span><input maxlength="4000" placeholder="Message ' + name + ' (enter sends, esc closes)" aria-label="Message ' + name + '" value="' + esc(draft) + '"></form>' : '') +
+        '</div>';
+    }).join(''));
+  }
+
+  var LABELS = { theme: 'colours', background: 'background', calls: 'who can call you', 'call.hideip': 'hide your IP on calls', notify: 'pop-ups', bell: 'sounds' };
+  function renderSettings() {
+    var html = '<div class="set">';
+    Object.keys(LABELS).forEach(function (k) {
+      var o = S.settings && S.settings[k];
+      if (!o) return;
+      html += '<label for="s-' + k + '">' + LABELS[k] + '</label><select id="s-' + k + '" data-key="' + k + '">' +
+        o.choices.map(function (c) { return '<option' + (c === o.value ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>';
+    });
+    var forever = S.dnd && S.dnd - Date.now() > 50 * 365 * 86400000;
+    html += '<label>do not disturb</label><span class="row">' + (S.dnd
+      ? '<span class="warn">on</span> <span class="dim">' + (forever ? 'until you turn it off' : 'until ' + clock(S.dnd)) + '</span><button class="mini" data-act="dnd" data-for="off">turn off</button>'
+      : '<button class="mini" data-act="dnd" data-for="1h">1 hour</button><button class="mini" data-act="dnd" data-for="tomorrow 8am">until morning</button><button class="mini" data-act="dnd" data-for="">until I say</button>') + '</span>';
+    paint('settings', html + '</div>');
+  }
+
+  function renderComing() {
+    var items = [];
+    (S.scheduled.reminders || []).forEach(function (r) { items.push({ at: r.at, kind: 'reminders', id: r.id, html: '⏰ ' + esc(r.text) }); });
+    (S.scheduled.later || []).forEach(function (m) { items.push({ at: m.at, kind: 'later', id: m.id, html: 'to <span class="acc">' + esc(m.key) + '</span>: ' + esc(m.text) }); });
+    items.sort(function (a, b) { return a.at - b.at; });
+    paint('coming', items.length ? '<ul class="plain">' + items.map(function (x) {
+      return '<li class="row"><span class="dim">' + esc(when(x.at)) + '</span><span>' + x.html + '</span><button class="mini" data-act="unschedule" data-kind="' + x.kind + '" data-id="' + esc(x.id) + '">cancel</button></li>';
+    }).join('') + '</ul>' : '<p class="dim">Nothing scheduled. In gossip, try <b>/remind 10m stretch</b> or <b>/later 8am good morning!</b></p>');
+  }
+
+  function openWriter(who) {
+    writing = writing === who ? null : who;
+    draft = '';
+    painted.people = null;
+    renderPeople();
+    var i = document.querySelector('.write input');
+    if (i) i.focus();
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-act]');
+    if (!b || b.disabled) return;
+    var a = b.getAttribute('data-act'), who = b.getAttribute('data-who');
+    if (a === 'write') return openWriter(who);
+    var body = a === 'call' || a === 'video' ? { do: 'call', peer: who, video: a === 'video' }
+      : a === 'dnd' ? { do: 'dnd', for: b.getAttribute('data-for') }
+        : a === 'unschedule' ? { do: 'unschedule', kind: b.getAttribute('data-kind'), id: b.getAttribute('data-id') }
+          : { do: a };
+    b.disabled = true;
+    act(body).then(function (r) {
+      painted = {};
+      if (r && r.error) $('status').innerHTML = '<span class="err">●</span> ' + esc(r.error);
+      setTimeout(load, r && r.error ? 2500 : 0);
+    });
+  });
+  document.addEventListener('submit', function (e) {
+    var f = e.target.closest && e.target.closest('form.write');
+    if (!f) return;
+    e.preventDefault();
+    var input = f.querySelector('input'), text = input.value.trim();
+    if (!text) return;
+    input.disabled = true;
+    act({ do: 'send', to: f.getAttribute('data-who'), text: text }).then(function (r) {
+      input.disabled = false;
+      if (r && r.ok) { input.value = ''; draft = ''; input.placeholder = 'Sent ✓  (write another, or esc)'; } else input.placeholder = 'Not sent: ' + ((r && r.error) || 'try again');
+      input.focus();
+    });
+  });
+  document.addEventListener('input', function (e) { if (e.target.closest && e.target.closest('form.write')) draft = e.target.value; });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && writing) openWriter(writing); });
+  document.addEventListener('change', function (e) {
+    var k = e.target.getAttribute && e.target.getAttribute('data-key');
+    if (!k) return;
+    var v = e.target.value;
+    e.target.blur();
+    act({ do: 'set', key: k, value: v }).then(function () { if (k === 'theme') location.reload(); else { painted = {}; load(); } });
+  });
+
   var failures = 0;
   function load() {
     fetch(C.api).then(function (r) { return r.json(); }).then(function (s) {
       failures = 0;
       S = s;
+      if (s.connection.ping != null) { pings.push(s.connection.ping); if (pings.length > 40) pings.shift(); }
       render();
     }).catch(function () {
       if (++failures > 2) $('status').innerHTML = '<span class="err">●</span> gossip was closed';

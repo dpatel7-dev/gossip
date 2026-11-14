@@ -2,6 +2,18 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.8.0
+- The daylight theme really is light now: it paints your terminal light while gossip is open, even if your terminal is set to dark, and puts everything back when you leave. (`gossip config background terminal` keeps your terminal's own background; `background theme` lets every theme paint its own.)
+- Calls no longer say the connection "hiccuped" when it's fine. Browsers report tiny blips that heal on their own; gossip now only says something if the connection really drops.
+- Chat during a call: press `t` in the call window. What you type there is a normal gossip message, so it's in your terminal and your history too, and messages from them pop up in the call.
+- Reactions in calls: press 1-5 (👍 ❤️ 😂 🎉 👋) and they float up on both screens.
+- Pick your microphone, camera and speaker in the call (`d`), pop the call out into a small window that stays on top while you work (`p`, in Chrome and Edge), and go fullscreen (`f`).
+- If you talk while you're muted, the call tells you.
+- The dashboard has a People box: see who's online and what was said last, and message, call or video call anyone straight from the page. There's also Quick settings (theme, who can call you, pop-ups, sounds, do not disturb), a "Coming up" list, a round-trip graph and how much space gossip uses.
+- Reminders: `/remind 10m stretch`, `/remind 5pm call mom`, `/remind tomorrow 9am gym`.
+- Send a message later: `/later 8am happy birthday!` (or `/later @maya 30m see you soon`). If gossip is closed when it's due, it goes as soon as you open gossip again.
+- Do not disturb: `/dnd 1h`, `/dnd 5pm`, or just `/dnd` until you turn it off. No sounds or pop-ups; messages and calls still arrive. It's in the Tab menu and on the dashboard too.
+
 ## 0.7.2
 - gossip has its own call relay now: `gossip turn`. Run it on any always-on machine (one setup command, see docs/HOSTING.md) and your gossip website hands everyone a call login that works for a day. Calls then get through networks that block direct connections, with no outside service or signup.
 - Hide your IP address from people you call: `gossip config call.hideip on` (uses your call relay).

@@ -110,6 +110,23 @@ function adoptRoom(app, room, res) {
   return chat;
 }
 
+/** /remind and /later with nothing after them: what's coming up. */
+function listScheduled(app, kind) {
+  const W = require('./when');
+  const list = app.scheduled(kind);
+  const what = kind === 'later' ? 'scheduled messages' : 'reminders';
+  if (!list.length) {
+    return app.say(kind === 'later' ? `No scheduled messages. Make one: ${app.hint('later 8am good morning!')}` : `No reminders. Make one: ${app.hint('remind 10m stretch')}`, 'sys');
+  }
+  const rows = [[[`Your ${what}`, 'head']]];
+  list.forEach((x, i) => rows.push([
+    [`  ${String(i + 1).padStart(2)}  `, 'accent'], [W.describe(x.at).padEnd(26), 'dim'],
+    [kind === 'later' ? `${pretty(x.key)}  ` : '', x.key && x.key[0] === '#' ? 'room' : 'accent'], [String(x.text).replace(/\s+/g, ' ').slice(0, 90), null],
+  ]));
+  rows.push([[`  Cancel one: ${app.hint(`${kind === 'later' ? 'later' : 'remind'} cancel 1`)}`, 'dim']]);
+  return app.rows(rows);
+}
+
 /** Show the last few saved messages of a conversation. */
 function replay(app, key, n) {
   const list = app.vault.loadHistory(key, n);
@@ -185,6 +202,79 @@ const COMMANDS = [
       });
       app.emit('change');
       app.say(was ? `${pretty(key)} is unmuted.` : `${pretty(key)} is muted - messages still arrive, quietly. Same command to undo.`, 'ok');
+    },
+  },
+  {
+    name: 'dnd', aliases: ['focus', 'busy', 'donotdisturb'], args: '[how long | off]', group: 'Chat',
+    desc: 'Do not disturb: no sounds or pop-ups for a while (messages and calls still arrive)',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const W = require('./when');
+      const said = args.join(' ').trim();
+      if (/^(off|stop|no|0)$/i.test(said) || (!said && app.dndActive())) {
+        const was = app.dndActive();
+        app.setDnd(0);
+        return app.say(was ? 'Do not disturb is off.' : "Do not disturb wasn't on.", 'ok');
+      }
+      let until = Date.now() + 100 * 365 * 86400000; // until you turn it off
+      if (said && !/^(on|yes)$/i.test(said)) {
+        const t = W.parse(said);
+        if (!t) throw new Error(`For how long? For example: ${app.hint('dnd 1h')}, ${app.hint('dnd 5pm')} or just ${app.hint('dnd')}`);
+        until = t.at;
+      }
+      app.setDnd(until);
+      const forever = until - Date.now() > 50 * 365 * 86400000;
+      const d = W.describe(until);
+      const soon = /^in (.+) \((.+)\)$/.exec(d); // "in 30m (5:42 PM)"
+      const how = forever ? 'is on' : soon ? `for ${soon[1]} (until ${soon[2]})` : `until ${d.replace(/^at /, '')}`;
+      return app.say(`Do not disturb ${how}: no sounds or pop-ups. Messages and calls still arrive. Turn off: ${app.hint('dnd off')}`, 'ok');
+    },
+  },
+  {
+    name: 'remind', aliases: ['reminder', 'reminders', 'timer'], args: '<when> <what>', group: 'Chat',
+    desc: 'Remind yourself: /remind 10m stretch, /remind 5pm call mom (list them: /remind)',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const W = require('./when');
+      if (/^(cancel|delete|remove|rm|stop)$/i.test(args[0] || '')) {
+        const gone = app.unschedule('reminders', args[1] || '1');
+        if (!gone) throw new Error(`There's no reminder ${args[1] || '1'}. See them with ${app.hint('remind')}`);
+        return app.say(`Cancelled the reminder "${gone.text}".`, 'ok');
+      }
+      if (!args.length) return listScheduled(app, 'reminders');
+      const t = W.parse(args.join(' '));
+      if (!t) throw new Error(`When? For example: ${app.hint('remind 10m stretch')} or ${app.hint('remind 5pm call mom')}`);
+      const text = t.rest.trim() || 'Time is up!';
+      app.schedule('reminders', { at: t.at, text: text.slice(0, 300) });
+      return app.say(`I'll remind you ${W.describe(t.at)}: ${text}${ctx.shell ? '' : ' (while gossip is open)'}`, 'ok');
+    },
+  },
+  {
+    name: 'later', aliases: ['schedule', 'sendlater', 'scheduled'], args: '<when> <message>', complete: 'target', group: 'Chat',
+    desc: 'Send a message later: /later 8am happy birthday! (list them: /later)',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const W = require('./when');
+      if (/^(cancel|delete|remove|rm|stop)$/i.test(args[0] || '')) {
+        const gone = app.unschedule('later', args[1] || '1');
+        if (!gone) throw new Error(`There's no scheduled message ${args[1] || '1'}. See them with ${app.hint('later')}`);
+        return app.say(`Cancelled the message to ${pretty(gone.key)} ("${gone.text.slice(0, 40)}").`, 'ok');
+      }
+      if (!args.length) return listScheduled(app, 'later');
+      let words = args.join(' ');
+      let key = app.target;
+      if (/^[@#]/.test(args[0])) { // /later @maya 8am happy birthday
+        key = await resolveTarget(app, args[0]);
+        words = args.slice(1).join(' ');
+      }
+      if (!key) throw new Error(ctx.noTarget || `Who to? For example: ${app.hint('later @maya 8am happy birthday!')}`);
+      const t = W.parse(words);
+      if (!t) throw new Error(`When? For example: ${app.hint('later 30m see you soon')} or ${app.hint('later tomorrow 8am happy birthday!')}`);
+      let text = t.rest.trim();
+      if (!text) throw new Error('What should the message say? Put it after the time.');
+      if (prefs.on('emoji')) text = emojify(text);
+      app.schedule('later', { at: t.at, key, text: text.slice(0, 4000) });
+      return app.say(`Will send to ${pretty(key)} ${W.describe(t.at)}: "${text.length > 60 ? text.slice(0, 59) + '…' : text}" (gossip needs to be open then - it sends as soon as you're back if not). Cancel: ${app.hint('later cancel')}`, 'ok');
     },
   },
   {
@@ -813,7 +903,9 @@ const COMMANDS = [
         const res = prefs.set(app.vault, 'theme', args[0]);
         app.settings = res.settings;
         app.emit('change');
-        return app.say(`Theme is now ${res.value}.`, 'ok');
+        const painted = require('./paper').wanted();
+        const light = painted && painted.always && ctx.shell;
+        return app.say(`Theme is now ${res.value}.${light ? ` gossip paints your terminal light while it's open (and puts it back when you leave). To keep your terminal's own background: ${app.hint('config background terminal')}` : ''}`, 'ok');
       }
       const now = prefs.val('theme');
       const rows = [];

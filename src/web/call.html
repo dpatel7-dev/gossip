@@ -49,7 +49,7 @@ button { font: inherit; color: inherit; }
 .tap.on { display: grid; }
 
 /* the menu line: like gossip's footer, but you can click it */
-.keys { display: flex; flex-wrap: wrap; gap: .3em 2.4ch; padding: .9em 2ch .5em; border-top: 1px solid var(--border); margin-top: 1em; }
+.keys { display: flex; flex-wrap: wrap; gap: .3em 1.9ch; padding: .9em 2ch .5em; border-top: 1px solid var(--border); margin-top: 1em; }
 .keys button { background: none; border: 0; padding: .1em .6ch; border-radius: 4px; cursor: pointer; }
 .keys button:hover { background: color-mix(in srgb, var(--fg) 12%, transparent); }
 .keys button:disabled { opacity: .35; cursor: default; }
@@ -58,6 +58,40 @@ button { font: inherit; color: inherit; }
 .keys button[aria-pressed="true"] kbd { color: var(--bg); }
 .keys .end kbd, .keys .end { color: var(--err); }
 
+.keys .reacts { display: inline-flex; gap: .2ch; }
+.keys .reacts button { padding: .1em .35ch; }
+.count { color: var(--accent2); font-weight: 700; }
+
+/* chat during the call: real gossip messages, so they're in your terminal too */
+.side { position: absolute; top: 0; right: 0; bottom: 0; width: min(40ch, 46%); display: none; grid-template-rows: 1fr auto; background: color-mix(in srgb, var(--bg) 94%, transparent); border-left: 1px solid var(--border); }
+.side.on { display: grid; }
+.stage.chatting #me { right: calc(min(40ch, 46%) + 1.2ch); }
+.msgs { list-style: none; margin: 0; padding: .8em 1.5ch; overflow-y: auto; display: flex; flex-direction: column; gap: .3em; overflow-wrap: anywhere; }
+.msgs .from { font-weight: 700; color: var(--accent2); }
+.msgs .mine .from { color: var(--accent); }
+.msgs .old { opacity: .55; }
+.msgs .note { color: var(--dim); }
+.say { display: flex; gap: 1ch; padding: .5em 1.5ch .7em; border-top: 1px solid var(--border); }
+.say span { color: var(--accent2); font-weight: 700; }
+.say input { flex: 1; min-width: 0; background: none; border: 0; color: inherit; font: inherit; outline: none; }
+
+/* reactions float up from the bottom */
+.float { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.float span { position: absolute; bottom: 6%; font-size: 2.4rem; animation: rise 2.4s ease-out forwards; }
+.float span.theirs::after { content: attr(data-who); display: block; font-size: .8rem; text-align: center; color: var(--dim); }
+@keyframes rise { 0% { transform: translateY(0) scale(.6); opacity: 0; } 15% { opacity: 1; transform: translateY(-15%) scale(1); } 100% { transform: translateY(-300%) scale(1.1); opacity: 0; } }
+
+/* picking a microphone, camera and speaker */
+.devs { position: absolute; left: 1.2ch; bottom: 1em; display: none; grid-template-columns: auto minmax(0, 1fr); gap: .45em 1.5ch; align-items: center; padding: .8em 1.5ch; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; max-width: min(60ch, 92%); }
+.devs.on { display: grid; }
+.devs select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .15em .5ch; min-width: 0; }
+
+/* popped out into a small always-on-top window */
+body.pip { font-size: 12px; }
+body.pip .win { inset: 6px; }
+body.pip .label.r, body.pip .keys .more, body.pip .keys .reacts, body.pip .keys .dim, body.pip .status .meters > span:not(#bars) { display: none; }
+body.pip #pebble { width: 72px; height: 72px; }
+
 .status { display: flex; justify-content: space-between; gap: 2ch; padding: .2em 2ch .7em; color: var(--dim); white-space: nowrap; overflow: hidden; }
 .meters { display: flex; gap: 3ch; }
 .bar { color: var(--ok); letter-spacing: -.05em; display: inline-block; width: 8ch; }
@@ -65,7 +99,8 @@ button { font: inherit; color: inherit; }
   .label.r { display: none; }
   .status { flex-direction: column; gap: 0; }
 }
-@media (prefers-reduced-motion: reduce) { #them { transition: none; } }
+@media (prefers-reduced-motion: reduce) { #them { transition: none; } .float span { animation: fade 1.8s forwards; } }
+@keyframes fade { from { opacity: 1; } to { opacity: 0; } }
 </style>
 </head>
 <body>
@@ -73,7 +108,7 @@ button { font: inherit; color: inherit; }
   <span class="label l"><span class="brand">gossip</span> <span class="dim">·</span> call with <span class="peer" id="peerName"></span></span>
   <span class="label r" id="clock">00:00</span>
   <div></div>
-  <div class="stage">
+  <div class="stage" id="stage">
     <video id="them" autoplay playsinline></video>
     <div class="card" id="card">
       <canvas id="pebble" width="16" height="16" aria-hidden="true"></canvas>
@@ -81,13 +116,28 @@ button { font: inherit; color: inherit; }
       <div class="note dim" id="subline"></div>
     </div>
     <video id="me" autoplay playsinline muted></video>
+    <div class="side" id="side">
+      <ol class="msgs" id="msgs" aria-live="polite"></ol>
+      <form class="say" id="say"><span>›</span><input id="sayText" autocomplete="off" maxlength="2000" aria-label="Message"></form>
+    </div>
+    <div class="float" id="float" aria-hidden="true"></div>
+    <div class="devs" id="devs">
+      <label for="dMic">microphone</label><select id="dMic"></select>
+      <label for="dCam">camera</label><select id="dCam"></select>
+      <label for="dOut" id="lOut">speaker</label><select id="dOut"></select>
+    </div>
     <div class="banner" id="banner" role="status" aria-live="polite"></div>
     <div class="tap" id="tap"><span class="big">Click anywhere to hear <span class="peer" id="tapName"></span></span></div>
   </div>
   <div class="keys" role="toolbar" aria-label="Call controls">
-    <button id="bMute" aria-pressed="false"><kbd>m</kbd> mute <span class="dim">(hold space to talk)</span></button>
+    <button id="bMute" aria-pressed="false"><kbd>m</kbd> mute <span class="dim">(space: talk)</span></button>
     <button id="bCam" aria-pressed="false"><kbd>v</kbd> camera</button>
     <button id="bScreen" aria-pressed="false"><kbd>s</kbd> share screen</button>
+    <button id="bChat" aria-pressed="false"><kbd>t</kbd> chat <span class="count" id="chatCount"></span></button>
+    <span class="reacts" id="reacts" aria-label="Reactions (keys 1 to 5)"></span>
+    <button id="bDev" class="more" aria-pressed="false"><kbd>d</kbd> devices</button>
+    <button id="bPip" class="more"><kbd>p</kbd> pop out</button>
+    <button id="bFull" class="more"><kbd>f</kbd> fullscreen</button>
     <button id="bEnd" class="end"><kbd>esc</kbd> hang up</button>
   </div>
   <div class="status">
@@ -99,9 +149,13 @@ button { font: inherit; color: inherit; }
 (function () {
   'use strict';
   var C = __CONFIG__;
-  var $ = function (id) { return document.getElementById(id); };
+  // Every element, looked up once: they keep working after "pop out" moves them to another window.
+  var els = {};
+  document.querySelectorAll('[id]').forEach(function (el) { els[el.id] = el; });
+  var $ = function (id) { return els[id] || (els[id] = document.getElementById(id)); };
   $('peerName').textContent = $('peerName2').textContent = $('tapName').textContent = C.peer;
   document.title = 'gossip · call with ' + C.peer;
+  $('sayText').placeholder = 'message ' + C.peer + ' (enter sends)';
   var css = getComputedStyle(document.documentElement);
   var colour = function (name) { return css.getPropertyValue('--' + name).trim(); };
 
@@ -171,7 +225,10 @@ button { font: inherit; color: inherit; }
     $('tap').classList.remove('on');
     banner('');
     if (fromHere) post({ t: 'end' });
-    [camTrack, screenTrack].concat(local ? local.getTracks() : []).forEach(function (t) { if (t) t.stop(); });
+    [camTrack, screenTrack, spy].concat(local ? local.getTracks() : []).forEach(function (t) { if (t) t.stop(); });
+    $('devs').classList.remove('on');
+    $('say').querySelector('input').disabled = true;
+    if (pipWin) setTimeout(function () { if (pipWin) pipWin.close(); }, 2500);
     if (pc) pc.close();
     $('them').classList.remove('on');
     $('me').classList.remove('on');
@@ -199,6 +256,8 @@ button { font: inherit; color: inherit; }
     else if (m.t === 'reanswer' && C.role === 'caller' && pc && pc.signalingState === 'have-local-offer') {
       pc.setRemoteDescription({ type: 'answer', sdp: tune(m.sdp) }).catch(function () {});
     } else if (m.t === 'restart' && C.role === 'caller') restart('they asked');
+    else if (m.t === 'msg') chatLine(m);
+    else if (m.t === 'note') chatLine({ note: m.text });
     else if (m.t === 'end') finish(m.reason, false);
   };
   es.onerror = function () {
@@ -282,6 +341,8 @@ button { font: inherit; color: inherit; }
   // ── microphone and camera ──────────────────────────────────────
   var AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
   var VIDEO = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
+  var camId = '';
+  function camWanted() { return camId ? Object.assign({ deviceId: { exact: camId } }, VIDEO) : VIDEO; }
   function media() {
     return navigator.mediaDevices.getUserMedia({ audio: AUDIO, video: C.video ? VIDEO : false })
       .catch(function () { return navigator.mediaDevices.getUserMedia({ audio: AUDIO }); })
@@ -292,8 +353,29 @@ button { font: inherit; color: inherit; }
         if (camTrack) camTrack.contentHint = 'motion';
         preview();
         meter(s, $('mMe'));
+        listenWhileMuted();
         return s;
       });
+  }
+
+  // Talking while muted? Say so. (This listens to a copy of the microphone,
+  // which muting doesn't silence - nothing from it is ever sent.)
+  var spy = null, loudFor = 0, nudgedAt = 0;
+  function listenWhileMuted() {
+    if (spy) spy.stop();
+    var t = local && local.getAudioTracks()[0];
+    if (!t) return;
+    spy = t.clone();
+    spy.enabled = true;
+    meter(new MediaStream([spy]), null, function (lvl) {
+      if (!userMuted || pushToTalk || ended) { loudFor = 0; return; }
+      loudFor = lvl > 0.18 ? loudFor + 1 : Math.max(0, loudFor - 1);
+      if (loudFor >= 10 && Date.now() - nudgedAt > 15000) {
+        nudgedAt = Date.now();
+        loudFor = 0;
+        banner("You're muted - press m to talk (or hold space).", 'warn', 4000);
+      }
+    });
   }
   function outgoingVideo() { return netPaused ? null : (screenTrack || camTrack); }
   function preview() {
@@ -320,6 +402,7 @@ button { font: inherit; color: inherit; }
     ctl.onmessage = function (e) {
       try {
         var m = JSON.parse(e.data);
+        if (m.react) return react(m.react, false);
         theirCam = !!m.cam;
         theirReason = m.why || '';
         $('peerName2').className = m.mute ? 'dim' : '';
@@ -337,13 +420,16 @@ button { font: inherit; color: inherit; }
     pc.onconnectionstatechange = onConnection;
   }
 
-  var dropTimer = null, restarts = 0, restarting = 0;
+  var dropTimer = null, restarts = 0, restarting = 0, dropShown = false;
   function onConnection() {
     if (ended || !pc) return;
     var s = pc.connectionState;
     if (s === 'connected') {
       clearTimeout(dropTimer);
-      if (restarting) banner('Back.', 'ok', 2500);
+      // only mention it if we said something was wrong in the first place
+      if (dropShown) banner('Back.', 'ok', 2000);
+      else if (/^The connection dropped/.test($('banner').textContent)) banner('');
+      dropShown = false;
       restarting = 0;
       restarts = 0;
       if (!startedAt) {
@@ -355,19 +441,29 @@ button { font: inherit; color: inherit; }
       }
       state('live', 'ok');
     } else if (s === 'disconnected') {
-      // Often just a blip. Give it a moment, then rebuild the connection.
-      state('reconnecting…', 'warn');
-      banner('The connection hiccuped - reconnecting…', 'warn');
+      // Browsers report "disconnected" for blips that heal by themselves a moment
+      // later - while the sound never stopped. So say nothing unless it lasts.
       clearTimeout(dropTimer);
-      dropTimer = setTimeout(function () { if (pc && pc.connectionState !== 'connected') restart('dropped'); }, 1200);
+      dropTimer = setTimeout(function () {
+        if (ended || !pc || pc.connectionState === 'connected') return;
+        dropped();
+        restart('dropped');
+      }, 2500);
     } else if (s === 'failed') {
       if (!startedAt) {
         // never connected at all: try once more through any relay server before giving up
         if (restarts === 0) return restart('first try failed');
         return fail("your computers couldn't reach each other - a strict network or firewall can block direct calls (see gossip help: calls)");
       }
+      dropped();
       restart('failed');
     }
+  }
+  function dropped() {
+    if (dropShown) return;
+    dropShown = true;
+    state('reconnecting…', 'warn');
+    banner('The connection dropped - reconnecting…', 'warn');
   }
 
   // Rebuild the connection over a fresh route ("ICE restart"). Only the caller
@@ -388,7 +484,7 @@ button { font: inherit; color: inherit; }
       .then(function () { post({ t: 'reoffer', sdp: pc.localDescription.sdp }); })
       .catch(function () { restarting = 0; });
     // if it doesn't come back, try again
-    setTimeout(function () { if (!ended && pc && pc.connectionState !== 'connected') { restarting = 0; restart('still down'); } }, 6000);
+    setTimeout(function () { if (!ended && pc && pc.connectionState !== 'connected') { dropped(); restarting = 0; restart('still down'); } }, 6000);
   }
   function onReoffer(sdp) {
     if (!pc || ended) return;
@@ -540,7 +636,7 @@ button { font: inherit; color: inherit; }
       camTrack = null;
       return preview();
     }
-    navigator.mediaDevices.getUserMedia({ video: VIDEO }).then(function (s) {
+    navigator.mediaDevices.getUserMedia({ video: camWanted() }).then(function (s) {
       camTrack = s.getVideoTracks()[0];
       camTrack.contentHint = 'motion';
       preview();
@@ -559,28 +655,206 @@ button { font: inherit; color: inherit; }
       preview();
     }).catch(function () {});
   }
+  // ── chat during the call ───────────────────────────────────────
+  // What you type here is an ordinary gossip message to them (end-to-end
+  // encrypted, saved with the rest of your chat), so it's in your terminal too.
+  var unreadChat = 0;
+  function chatOpen() { return $('side').classList.contains('on'); }
+  function chat(open) {
+    if (open === undefined) open = !chatOpen();
+    $('side').classList.toggle('on', open);
+    $('stage').classList.toggle('chatting', open);
+    $('bChat').setAttribute('aria-pressed', String(open));
+    if (open) {
+      if ($('banner').textContent.indexOf(C.peer + ': ') === 0) banner(''); // (the message is right there now)
+      unreadChat = 0;
+      $('chatCount').textContent = '';
+      setTimeout(function () { $('sayText').focus(); }, 0);
+      $('msgs').scrollTop = $('msgs').scrollHeight;
+    } else $('sayText').blur();
+  }
+  function chatLine(m) {
+    var li = document.createElement('li');
+    if (m.note) { li.className = 'note'; li.textContent = m.note; }
+    else {
+      li.className = (m.mine ? 'mine' : '') + (m.old ? ' old' : '');
+      var who = document.createElement('span');
+      who.className = 'from';
+      who.textContent = (m.mine ? 'you' : m.from) + ' ';
+      li.appendChild(who);
+      li.appendChild(document.createTextNode(m.text));
+    }
+    $('msgs').appendChild(li);
+    $('msgs').scrollTop = $('msgs').scrollHeight;
+    if (!m.mine && !m.old && !m.note && !chatOpen()) {
+      unreadChat++;
+      $('chatCount').textContent = String(unreadChat);
+      banner(m.from + ': ' + (m.text.length > 90 ? m.text.slice(0, 89) + '…' : m.text) + '   (t to reply)', 'dim', 5000);
+    }
+  }
+  $('say').onsubmit = function (e) {
+    e.preventDefault();
+    var text = $('sayText').value.trim();
+    if (!text || ended) return;
+    $('sayText').value = '';
+    post({ t: 'say', text: text });
+  };
+  $('sayText').addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); chat(false); }
+  });
+
+  // ── reactions ──────────────────────────────────────────────────
+  var REACTIONS = ['👍', '❤️', '😂', '🎉', '👋'];
+  REACTIONS.forEach(function (r, i) {
+    var b = document.createElement('button');
+    b.textContent = r;
+    b.title = 'React with ' + r + ' (' + (i + 1) + ')';
+    b.onclick = function () { sendReaction(r); };
+    $('reacts').appendChild(b);
+  });
+  var lastReaction = 0;
+  function sendReaction(r) {
+    if (!startedAt || ended || Date.now() - lastReaction < 250) return;
+    lastReaction = Date.now();
+    if (ctl && ctl.readyState === 'open') ctl.send(JSON.stringify({ react: r }));
+    react(r, true);
+  }
+  function react(r, mine) {
+    if (REACTIONS.indexOf(r) < 0) return; // only the five we know
+    var s = document.createElement('span');
+    s.textContent = r;
+    if (!mine) { s.className = 'theirs'; s.setAttribute('data-who', C.peer); }
+    s.style.left = (mine ? 8 + Math.random() * 30 : 55 + Math.random() * 30) + '%';
+    $('float').appendChild(s);
+    setTimeout(function () { s.remove(); }, 2600);
+  }
+
+  // ── microphone, camera and speaker ─────────────────────────────
+  function devices(open) {
+    if (open === undefined) open = !$('devs').classList.contains('on');
+    $('devs').classList.toggle('on', open);
+    $('bDev').setAttribute('aria-pressed', String(open));
+    if (!open || !navigator.mediaDevices.enumerateDevices) return;
+    navigator.mediaDevices.enumerateDevices().then(function (list) {
+      var mic = local && local.getAudioTracks()[0], cam = camTrack;
+      var now = {
+        dMic: mic && mic.getSettings ? mic.getSettings().deviceId : '',
+        dCam: cam && cam.getSettings ? cam.getSettings().deviceId : camId,
+        dOut: $('them').sinkId || 'default'
+      };
+      [['dMic', 'audioinput', 'Microphone'], ['dCam', 'videoinput', 'Camera'], ['dOut', 'audiooutput', 'Speaker']].forEach(function (k) {
+        var sel = $(k[0]);
+        sel.innerHTML = '';
+        list.filter(function (d) { return d.kind === k[1]; }).forEach(function (d, i) {
+          var o = document.createElement('option');
+          o.value = d.deviceId;
+          o.textContent = d.label || k[2] + ' ' + (i + 1);
+          o.selected = d.deviceId === now[k[0]];
+          sel.appendChild(o);
+        });
+        if (!sel.options.length) { var o = document.createElement('option'); o.textContent = 'none found'; sel.appendChild(o); sel.disabled = true; }
+      });
+      var canPick = typeof $('them').setSinkId === 'function';
+      $('dOut').hidden = $('lOut').hidden = !canPick;
+    }).catch(function () {});
+  }
+  $('dMic').onchange = function () {
+    var id = this.value, old = local && local.getAudioTracks()[0];
+    navigator.mediaDevices.getUserMedia({ audio: Object.assign({ deviceId: { exact: id } }, AUDIO) }).then(function (s) {
+      var t = s.getAudioTracks()[0];
+      t.contentHint = 'speech';
+      if (old) { t.enabled = old.enabled; local.removeTrack(old); old.stop(); }
+      local.addTrack(t);
+      if (audioSender) audioSender.replaceTrack(t).catch(function () {});
+      meter(new MediaStream([t]), $('mMe'));
+      listenWhileMuted();
+      banner('Microphone switched.', 'ok', 2000);
+    }).catch(function () { banner("That microphone couldn't be opened.", 'warn', 4000); });
+  };
+  $('dCam').onchange = function () {
+    camId = this.value;
+    if (!camTrack) return banner('Camera picked - press v to turn it on.', 'ok', 2500);
+    navigator.mediaDevices.getUserMedia({ video: camWanted() }).then(function (s) {
+      camTrack.stop();
+      camTrack = s.getVideoTracks()[0];
+      camTrack.contentHint = 'motion';
+      preview();
+    }).catch(function () { banner("That camera couldn't be opened.", 'warn', 4000); });
+  };
+  $('dOut').onchange = function () {
+    var id = this.value;
+    $('them').setSinkId(id).then(function () { banner('Speaker switched.', 'ok', 2000); }).catch(function () { banner("Couldn't switch to that speaker.", 'warn', 4000); });
+  };
+
+  // ── pop out: the call in a small window that stays on top while you work ──
+  var pipWin = null;
+  function popOut() {
+    if (pipWin) { pipWin.close(); return; }
+    if (window.documentPictureInPicture && documentPictureInPicture.requestWindow) {
+      documentPictureInPicture.requestWindow({ width: 420, height: 330 }).then(function (w) {
+        pipWin = w;
+        document.querySelectorAll('style').forEach(function (s) { w.document.head.appendChild(s.cloneNode(true)); });
+        w.document.title = document.title;
+        w.document.body.className = 'pip';
+        var win = document.querySelector('.win');
+        w.document.body.appendChild(win);
+        replay();
+        w.document.addEventListener('keydown', onKeyDown);
+        w.document.addEventListener('keyup', onKeyUp);
+        w.addEventListener('pagehide', function () {
+          document.body.insertBefore(win, document.body.firstChild);
+          pipWin = null;
+          replay();
+        });
+      }).catch(function () { banner("Your browser wouldn't pop the call out.", 'warn', 4000); });
+    } else if (document.pictureInPictureEnabled && $('them').classList.contains('on')) {
+      $('them').requestPictureInPicture().catch(function () {});
+    } else banner('Pop out needs Chrome or Edge (or their camera on, for picture-in-picture).', 'warn', 5000);
+  }
+  function replay() { ['them', 'me'].forEach(function (id) { var v = $(id); if (v.srcObject && v.paused) v.play().catch(function () {}); }); }
+  function fullScreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function () {});
+  }
+
   $('bMute').onclick = mute;
   $('bCam').onclick = camera;
   $('bScreen').onclick = share;
+  $('bChat').onclick = function () { chat(); };
+  $('bDev').onclick = function () { devices(); };
+  $('bPip').onclick = popOut;
+  $('bFull').onclick = fullScreen;
   $('bEnd').onclick = function () { finish('hung up', true); };
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $('bScreen').disabled = true;
-  document.addEventListener('keydown', function (e) {
+  function onKeyDown(e) {
     if (e.metaKey || e.ctrlKey || e.altKey || ended) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return; // typing in the chat
     if (e.key === 'm') mute();
     else if (e.key === 'v') camera();
     else if (e.key === 's' && !$('bScreen').disabled) share();
-    else if (e.key === 'Escape') finish('hung up', true);
-    else if (e.key === ' ' && userMuted && !e.repeat) { e.preventDefault(); pushToTalk = true; setMic(true); banner('Talking (let go of space to mute again)', 'ok'); }
-  });
-  document.addEventListener('keyup', function (e) {
+    else if (e.key === 't') { e.preventDefault(); chat(); }
+    else if (e.key === 'd') devices();
+    else if (e.key === 'p') popOut();
+    else if (e.key === 'f') fullScreen();
+    else if (/^[1-5]$/.test(e.key)) sendReaction(REACTIONS[Number(e.key) - 1]);
+    else if (e.key === 'Escape') {
+      if ($('devs').classList.contains('on')) devices(false);
+      else if (chatOpen()) chat(false);
+      else finish('hung up', true);
+    } else if (e.key === ' ' && userMuted && !e.repeat) { e.preventDefault(); pushToTalk = true; setMic(true); banner('Talking (let go of space to mute again)', 'ok'); }
+  }
+  function onKeyUp(e) {
     if (e.key === ' ' && pushToTalk) { pushToTalk = false; setMic(false); banner(''); }
-  });
+  }
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
   $('tap').onclick = function () { $('them').play(); $('tap').classList.remove('on'); };
   window.addEventListener('pagehide', function () { if (!ended) navigator.sendBeacon(C.api, JSON.stringify({ t: 'end' })); });
 
   // ── sound meters and the clock ─────────────────────────────────
   var actx = null;
-  function meter(stream, el) {
+  function meter(stream, el, onLevel) {
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
       var src = actx.createMediaStreamSource(stream), an = actx.createAnalyser();
@@ -588,14 +862,18 @@ button { font: inherit; color: inherit; }
       src.connect(an);
       var buf = new Uint8Array(an.fftSize), blocks = ' ▁▂▃▄▅▆▇█', hist = [];
       (function tick() {
-        if (ended) return;
+        // stop when the call ends, or this microphone was swapped for another
+        if (ended || stream.getAudioTracks().every(function (t) { return t.readyState === 'ended'; })) { src.disconnect(); return; }
         an.getByteTimeDomainData(buf);
         var sum = 0;
         for (var i = 0; i < buf.length; i++) { var v = (buf[i] - 128) / 128; sum += v * v; }
         var lvl = Math.min(1, Math.sqrt(sum / buf.length) * 4);
-        hist.push(blocks[Math.round(lvl * 8)]);
-        if (hist.length > 8) hist.shift();
-        el.textContent = hist.join('');
+        if (el) {
+          hist.push(blocks[Math.round(lvl * 8)]);
+          if (hist.length > 8) hist.shift();
+          el.textContent = hist.join('');
+        }
+        if (onLevel) onLevel(lvl);
         setTimeout(tick, 100);
       })();
       document.addEventListener('click', function () { if (actx.state === 'suspended') actx.resume(); }, { once: true });

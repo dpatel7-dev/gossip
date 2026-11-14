@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const os = require('os');
+const path = require('path');
 const e2e = require('./e2e');
 const prefs = require('./prefs');
 const U = require('./update');
@@ -86,6 +87,37 @@ function history(app) {
   return { days, sent, received, files, top: per.slice(0, 5), chats: per.length };
 }
 
+/** Your contacts, with the last thing said in each chat. */
+function people(app) {
+  return app.contacts().map((p) => {
+    const last = app.vault.loadHistory('@' + p.name, 1).filter((r) => typeof r.text === 'string').pop();
+    return {
+      name: p.name, verified: !!p.verified, changed: !!p.changed, muted: app.muted('@' + p.name),
+      online: app.presence.has(p.name) ? app.presence.get(p.name) : null,
+      last: last ? { ts: last.ts, mine: last.from === app.me, text: last.file ? `[file] ${last.file.name}` : last.text.replace(/\s+/g, ' ').slice(0, 80) } : null,
+    };
+  }).sort((a, b) => (b.online === true) - (a.online === true) || ((b.last && b.last.ts) || 0) - ((a.last && a.last.ts) || 0));
+}
+
+/** How much room gossip takes on this computer. */
+function storage(app) {
+  const size = (dir, deep) => {
+    let n = 0;
+    let count = 0;
+    try {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isFile()) { n += fs.statSync(full).size; count++; } else if (deep && e.isDirectory()) { const x = size(full, false); n += x.bytes; count += x.count; }
+      }
+    } catch { /* not there yet */ }
+    return { bytes: n, count };
+  };
+  const filesDir = require('./files').saveDir(app.vault.dir, prefs.val('files'));
+  return { history: size(app.vault.historyDir, false), files: { ...size(filesDir, false), dir: filesDir }, home: app.vault.dir };
+}
+
+const SETTABLE = ['theme', 'calls', 'call.hideip', 'notify', 'bell', 'background'];
+
 async function snapshot(app) {
   const link = app.link;
   const url = app.serverUrl || '';
@@ -163,6 +195,12 @@ async function snapshot(app) {
     calls: app.calls ? app.calls.summary() : [],
     activity: app.activity.slice(-60).reverse(),
     theme: prefs.val('theme'),
+    people: people(app),
+    dnd: app.dndUntil(),
+    scheduled: { later: app.scheduled('later'), reminders: app.scheduled('reminders') },
+    settings: Object.fromEntries(SETTABLE.map((k) => [k, { value: prefs.val(k), choices: prefs.OPTIONS.find((o) => o.key === k).choices }])),
+    storage: await cached('storage', 10000, async () => storage(app)),
+    callNow: app.calls && app.calls.current ? app.calls.current.peer : null,
   };
 }
 
@@ -184,6 +222,25 @@ function routes(app, web) {
         result = { ok: true, closed: r.closed };
       } else if (m.do === 'reconnect' && app.link) {
         app.link.retryNow();
+      } else if (m.do === 'call' && app.calls && typeof m.peer === 'string' && app.peers.get(m.peer) && app.peers.get(m.peer).contact) {
+        await app.calls.start(m.peer, { video: !!m.video });
+      } else if (m.do === 'send' && typeof m.to === 'string' && typeof m.text === 'string' && m.text.trim() && app.peers.get(m.to) && app.peers.get(m.to).contact) {
+        await app.send('@' + m.to, m.text.slice(0, 4000));
+      } else if (m.do === 'set' && SETTABLE.includes(m.key)) {
+        const res = prefs.set(app.vault, m.key, m.value);
+        app.settings = res.settings;
+        app.emit('change');
+        app.log('event', `Changed ${m.key} to ${res.value} from the dashboard.`);
+      } else if (m.do === 'dnd') {
+        const W = require('./when');
+        const t = m.for === 'off' ? null : m.for ? W.parse(String(m.for)) : null;
+        app.setDnd(m.for === 'off' ? 0 : t ? t.at : Date.now() + 100 * 365 * 86400000);
+      } else if (m.do === 'unschedule' && ['later', 'reminders'].includes(m.kind) && typeof m.id === 'string') {
+        result = { ok: !!app.unschedule(m.kind, m.id) };
+      } else if (m.do === 'openfiles') {
+        const dir = storage(app).files.dir;
+        fs.mkdirSync(dir, { recursive: true });
+        openBrowser(dir);
       } else result = { ok: false };
     } catch (e) {
       result = { ok: false, error: e.message };

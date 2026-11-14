@@ -19,9 +19,9 @@ const { handleInput } = require('./commands');
 const pkg = require('../package.json');
 
 const notify = require('./notify');
+const P = require('./paper');
 
 const FOCUS_RE = /\x1b\[([IO])/g; // the terminal telling us its window gained / lost focus
-const BG_RE = /\x1b\]11;rgb:([0-9a-f]{2,4})\/([0-9a-f]{2,4})\/([0-9a-f]{2,4})(?:\x07|\x1b\\)/i; // "my background colour is…"
 const MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 /** Is this window big enough for the full screen? */
@@ -230,6 +230,11 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     // ── drawing ─────────────────────────────────────────────────────────────
 
     function statusText() {
+      const quiet = app.dndActive() ? Th.warn('◐ do not disturb') + Th.dim(' · ') : '';
+      return quiet + connText();
+    }
+
+    function connText() {
       const st = app.conn.state;
       const d = app.conn.detail || {};
       if (st === 'online') return Th.ok('●') + ' ' + Th.dim(`${app.me} · ${host()}`);
@@ -358,12 +363,15 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     function flush() {
       scheduled = false;
       if (closed) return;
+      // the theme may have changed (menu, /theme, the dashboard): repaint everything in its colours
+      const paint = P.sync();
+      if (paint) { prev = []; still = null; petStill = null; }
       const f = frame();
-      let buf = '\x1b[?2026h\x1b[?25l';
+      let buf = '\x1b[?2026h\x1b[?25l' + (paint ? paint + P.ink() + '\x1b[2J' : '');
       for (let y = 0; y < f.lines.length; y++) {
-        if (prev[y] !== f.lines[y]) buf += `\x1b[${y + 1};1H${f.lines[y]}${A.RESET}`;
+        if (prev[y] !== f.lines[y]) buf += `\x1b[${y + 1};1H${A.paperize(f.lines[y] + A.RESET)}`;
       }
-      if (prev.length > f.lines.length) buf += `\x1b[${f.lines.length + 1};1H\x1b[J`;
+      if (prev.length > f.lines.length) buf += `\x1b[${f.lines.length + 1};1H${P.ink()}\x1b[J`;
       prev = f.lines;
       buf += `\x1b[${f.row + 1};${f.col + 1}H` + (menu.active ? '' : '\x1b[?25h') + '\x1b[?2026l';
       out.write(buf);
@@ -462,7 +470,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
 
     function restore() {
       try {
-        out.write('\x1b[?1004l\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l');
+        out.write(P.restore() + '\x1b[?1004l\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l');
       } catch { /* terminal already gone */ }
       try { inp.setRawMode(false); } catch { /* not a tty any more */ }
       inp.pause();
@@ -563,7 +571,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
           case 'w': ed.deleteWord(); break;
           case 'left': ed.wordLeft(); break;
           case 'right': ed.wordRight(); break;
-          case 'l': prev = []; out.write('\x1b[2J'); break;
+          case 'l': prev = []; out.write(P.ink() + '\x1b[2J'); break;
           default:
         }
       } else if (key.meta) {
@@ -619,13 +627,11 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     function onData(chunk) {
       let text = carry + chunk.toString('utf8');
       carry = '';
-      text = text.replace(BG_RE, (all, r, g, b) => {
-        M.setBackdrop([r, g, b].map((h) => parseInt(h.slice(0, 2), 16)));
+      text = P.absorb(text, () => { // the terminal said what colours it has
         still = null;
         petStill = null;
         prev = [];
         schedule();
-        return '';
       });
       text = text.replace(FOCUS_RE, (all, kind) => {
         focusKnown = true;
@@ -688,9 +694,10 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     inp.setRawMode(true);
     inp.resume();
     hook(inp, 'data', onData);
-    hook(out, 'resize', () => { prev = []; cache = null; out.write('\x1b[2J'); schedule(); });
-    // (\x1b]11;? asks the terminal what its background colour is, for drawing Pebble cleanly)
-    out.write('\x1b[?1049h\x1b[2J\x1b[?2004h\x1b[?1004h\x1b]11;?\x07' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
+    hook(out, 'resize', () => { prev = []; cache = null; out.write(P.ink() + '\x1b[2J'); schedule(); });
+    // (P.QUERY asks the terminal what colours it has - for drawing Pebble cleanly, and for
+    // putting them back after the daylight theme has painted the screen light)
+    out.write('\x1b[?1049h' + P.QUERY + P.sync() + P.ink() + '\x1b[2J\x1b[?2004h\x1b[?1004h' + (prefs.on('mouse') ? '\x1b[?1000h\x1b[?1006h' : ''));
 
     if (notice) {
       home.push({ t: 'note', kind: 'sys', text: notice });

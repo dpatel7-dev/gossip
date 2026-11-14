@@ -12,6 +12,7 @@ const readline = require('readline');
 const A = require('./ansi');
 const R = require('./render');
 const Th = require('./theme');
+const P = require('./paper');
 const M = require('./mascot');
 const prefs = require('./prefs');
 const { plural } = require('./text');
@@ -72,6 +73,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
         const secs = d.retryAt ? Math.max(1, Math.ceil((d.retryAt - Date.now()) / 1000)) : 0;
         right = statusDot() + ' ' + Th.dim(`offline${d.message ? ' · ' + d.message : ''}${secs ? ` · retrying in ${secs}s` : ''}`);
       } else right = Th.dim('not connected');
+      if (app.dndActive()) right = Th.warn('◐ dnd') + Th.dim(' · ') + right;
       // the left side shrinks first, so who-you-are and the connection stay readable
       const rw = A.vwidth(right);
       const call = app.calls && app.calls.current;
@@ -182,10 +184,14 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
       if (!pending.length && region && sig === lastSig) return;
 
       // 2026 = "synchronized output": terminals that support it show this all at once
-      let buf = '\x1b[?2026h\x1b[?25l' + toRegionTop() + '\x1b[J';
-      for (const l of pending) buf += l + A.RESET + '\r\n';
+      let buf = '\x1b[?2026h\x1b[?25l';
+      const paint = P.sync(); // a theme that paints its own background (daylight): start on a clean page
+      if (paint) { buf += paint + P.ink() + '\x1b[2J\x1b[H'; region = null; }
+      const line = (l) => A.paperize(l + A.RESET) + (A.getPaper() ? '\x1b[K' : '');
+      buf += toRegionTop() + P.ink() + '\x1b[J';
+      for (const l of pending) buf += line(l) + '\r\n';
       pending = [];
-      buf += r.lines.join(A.RESET + '\r\n');
+      buf += r.lines.map(line).join('\r\n');
       const up = r.lines.length - 1 - r.row;
       if (up > 0) buf += `\x1b[${up}A`;
       buf += '\r' + (r.col > 0 ? `\x1b[${r.col}C` : '') + '\x1b[?25h\x1b[?2026l';
@@ -320,7 +326,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
 
     function restore() {
       try {
-        out.write('\x1b[?2026h' + toRegionTop() + '\x1b[J\x1b[?2004l\x1b[?25h\x1b[?2026l');
+        out.write('\x1b[?2026h' + toRegionTop() + P.restore() + '\x1b[0m\x1b[J\x1b[?2004l\x1b[?25h\x1b[?2026l');
       } catch { /* terminal already gone */ }
       try { inp.setRawMode(false); } catch { /* not a tty any more */ }
       inp.pause();
@@ -464,7 +470,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
           case 'w': ed.deleteWord(); break;
           case 'left': ed.wordLeft(); break;
           case 'right': ed.wordRight(); break;
-          case 'l': out.write('\x1b[2J\x1b[H'); region = null; lastSig = ''; break;
+          case 'l': out.write(P.ink() + '\x1b[2J\x1b[H'); region = null; lastSig = ''; break;
           default:
         }
       } else if (key.meta) {

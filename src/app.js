@@ -11,6 +11,7 @@ const fs = require('fs');
 const { makeLink, probeHttp, friendlyNetError } = require('./net');
 const { cleanText } = require('./text');
 const prefs = require('./prefs');
+const notify = require('./notify');
 
 function fail(code, message) {
   return Object.assign(new Error(message), { code });
@@ -114,6 +115,94 @@ class App extends EventEmitter {
     this._lastTyping = 0;
     this._roomsFetched = 0;
     this._saidOffline = false;
+    this._dndWas = this.dndActive();
+    if (shell) notify.setQuiet(() => this.dndActive());
+  }
+
+  // ── do not disturb, reminders, messages for later ────────────────────────
+
+  /** When "do not disturb" ends (0 = it's off). */
+  dndUntil() {
+    const until = Number(this.settings.dnd) || 0;
+    return until > Date.now() ? until : 0;
+  }
+
+  dndActive() {
+    return this.dndUntil() > 0;
+  }
+
+  /** Turn do not disturb on until a time (0 = off). */
+  setDnd(until) {
+    this.settings = this.vault.updateSettings((s) => { s.dnd = until > Date.now() ? until : 0; });
+    this._dndWas = this.dndActive();
+    this.emit('change');
+  }
+
+  /** No sound while do not disturb is on. */
+  emit(event, ...args) {
+    if (event === 'bell' && this.dndActive() && !(args[0] && args[0].force)) return false;
+    return super.emit(event, ...args);
+  }
+
+  /** Save something to happen at a time: a reminder, or a message to send later. */
+  schedule(kind, item) {
+    const entry = { id: 's' + e2e.randomId().slice(0, 8), made: Date.now(), ...item };
+    this.settings = this.vault.updateSettings((s) => {
+      s[kind] = (Array.isArray(s[kind]) ? s[kind] : []).concat(entry).sort((a, b) => a.at - b.at).slice(-100);
+    });
+    this.emit('change');
+    return entry;
+  }
+
+  /** Remove a scheduled item by its number in the list (1 = soonest) or id. Returns it, or null. */
+  unschedule(kind, which) {
+    let gone = null;
+    this.settings = this.vault.updateSettings((s) => {
+      const list = Array.isArray(s[kind]) ? s[kind] : [];
+      const i = /^\d+$/.test(String(which)) ? Number(which) - 1 : list.findIndex((x) => x.id === which);
+      if (i >= 0 && i < list.length) gone = list.splice(i, 1)[0];
+      s[kind] = list;
+    });
+    this.emit('change');
+    return gone;
+  }
+
+  scheduled(kind) {
+    return Array.isArray(this.settings[kind]) ? this.settings[kind].filter((x) => x && typeof x.at === 'number') : [];
+  }
+
+  /** Send messages that are due, ring reminders that are due, notice do not disturb ending. */
+  _due(now) {
+    if (this._dndWas && !this.dndActive()) {
+      this._dndWas = false;
+      this.say('Do not disturb is over.', 'sys');
+    }
+    if (!this.shell || this.mode !== 'live' || !this.me) return;
+    const due = (k) => this.scheduled(k).some((x) => x.at <= now);
+    if (!due('later') && !due('reminders')) return;
+    const took = { later: [], reminders: [] };
+    // take them out first, so two gossip windows never both send the same message
+    this.settings = this.vault.updateSettings((s) => {
+      for (const k of ['later', 'reminders']) {
+        const list = Array.isArray(s[k]) ? s[k] : [];
+        took[k] = list.filter((x) => x && x.at <= now);
+        s[k] = list.filter((x) => x && x.at > now);
+      }
+    });
+    const late = (x) => (now - x.at > 120000 ? ` (it was due ${require('./when').span(now - x.at)} ago, while gossip was closed)` : '');
+    for (const r of took.reminders) {
+      this.say(`⏰ Reminder: ${r.text}${late(r)}`, 'event');
+      this.flash(`⏰ ${r.text}`);
+      this.emit('bell', { force: true });
+      notify.send('gossip reminder', r.text, { force: true });
+    }
+    for (const m of took.later) {
+      if (typeof m.key !== 'string' || typeof m.text !== 'string') continue;
+      this.send(m.key, m.text)
+        .then(() => this.log('ok', `Sent your scheduled message to ${m.key}${late(m)}.`))
+        .catch((e) => this.say(`Your scheduled message to ${m.key} wasn't sent: ${e.message}`, 'err'));
+    }
+    if (took.later.length) this.say(`Sending ${took.later.length === 1 ? 'a scheduled message' : `${took.later.length} scheduled messages`}${late(took.later[0])}.`, 'sys');
   }
 
   // Whenever settings are (re)loaded, the theme and preferences follow.
@@ -999,6 +1088,10 @@ class App extends EventEmitter {
   /** Called a few times a second by the live prompt. Returns true if the screen should refresh. */
   tick(now = Date.now()) {
     let changed = false;
+    if (now - (this._lastDue || 0) > 1000) {
+      this._lastDue = now;
+      this._due(now);
+    }
     for (const c of this.chats.values()) {
       for (const [name, until] of c.typing) {
         if (until <= now) {

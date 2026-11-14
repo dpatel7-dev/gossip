@@ -90,6 +90,31 @@ function paint(text, style) {
 const dim = (s) => paint(s, { dim: true });
 const bold = (s) => paint(s, { bold: true });
 
+// ── paper: painting every cell in the theme's own background ────────────────
+// Normally gossip draws on whatever background your terminal has. With paper
+// on (the daylight theme), every line it draws carries its own background and
+// text colour, so a dark terminal still shows a light gossip.
+
+let paper = null;
+
+/** Paint with this background and text colour from now on ({ bg, fg }), or stop (null). */
+function setPaper(p) {
+  if (!p || level === 0) { paper = null; return; }
+  const bg = colorCode(p.bg, true);
+  const fg = colorCode(p.fg, false);
+  paper = bg && fg ? { bg: p.bg, fg: p.fg, on: `\x1b[${fg};${bg}m`, fgOn: `\x1b[${fg}m`, bgOn: `\x1b[${bg}m` } : null;
+}
+function getPaper() { return paper; }
+
+/**
+ * A line ready to write: starts on the paper colours and goes back to them
+ * after every reset, so nothing falls through to the terminal's own background.
+ */
+function paperize(s) {
+  if (!paper) return s;
+  return paper.on + String(s).replace(/\x1b\[(0?|39|49)m/g, (all, c) => (c === '39' ? paper.fgOn : c === '49' ? paper.bgOn : RESET + paper.on));
+}
+
 // ── measuring ───────────────────────────────────────────────────────────────
 
 const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
@@ -221,6 +246,6 @@ function wrap(text, w) {
 }
 
 module.exports = {
-  RESET, ANSI, setColor, colorOn, setLevel, getLevel, detectLevel, parseHex, to256, sgr, paint, dim, bold,
+  RESET, ANSI, setColor, colorOn, setLevel, getLevel, detectLevel, parseHex, to256, sgr, paint, dim, bold, setPaper, getPaper, paperize,
   graphemes, gWidth, width, strip, vwidth, clip, clipW, ellipsis, wrap,
 };
