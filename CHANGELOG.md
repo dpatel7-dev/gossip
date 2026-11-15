@@ -2,6 +2,16 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.9.0
+- Suggestions while you type in the chat screen: start with `/` for commands, `@` for people or `#` for servers. `↑` `↓` choose, `Tab` completes, `Enter` runs or opens it, `Esc` hides the list.
+- Each chat keeps its own half-typed message. Switch to another chat and back, and it's still there - and it never gets sent to the wrong person.
+- `Ctrl+N` jumps to the next chat with unread messages (the bottom line tells you when there are some).
+- Scrolled up? The bottom line tells you when new messages arrive below.
+- The dashboard has a Conversation box: click any chat - people or servers - to read it and reply right on the page. It updates live, shows when they're typing, and links are clickable.
+- Search all your saved messages from the dashboard (press `/`), with the words highlighted. Click a result to open that chat.
+- Check safety numbers on the dashboard: open someone's chat to see the number, and mark them verified once you've compared it.
+- Servers show up in the dashboard's chat list too, with how many people are in each.
+
 ## 0.8.0
 - The daylight theme really is light now: it paints your terminal light while gossip is open, even if your terminal is set to dark, and puts everything back when you leave. (`gossip config background terminal` keeps your terminal's own background; `background theme` lets every theme paint its own.)
 - Calls no longer say the connection "hiccuped" when it's fine. Browsers report tiny blips that heal on their own; gossip now only says something if the connection really drops.

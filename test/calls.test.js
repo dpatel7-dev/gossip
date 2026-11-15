@@ -155,6 +155,19 @@ test('calls: ring, answer, both browsers swap details through gossip, hang up', 
     await act({ do: 'send', to: 'ben', text: 'from the dashboard' });
     await until(() => ben.vault.loadHistory('@ann', 5).some((r) => r.text === 'from the dashboard'), 'the dashboard message to arrive');
     assert.equal((await act({ do: 'send', to: 'stranger', text: 'hi' })).ok, false, 'only to your contacts');
+
+    // reading a chat on the page, searching, checking the safety number
+    const th = await act({ do: 'thread', key: '@ben' });
+    assert.ok(th.ok && th.thread.messages.some((x) => x.mine && x.text === 'from the dashboard'));
+    assert.match(th.thread.safety, /^\d{4,5}( \d{4,5})+$/);
+    assert.equal(th.thread.verified, false);
+    assert.equal((await act({ do: 'thread', key: '@stranger' })).ok, false, 'only your own chats');
+    assert.equal((await act({ do: 'thread', key: '../../etc' })).ok, false);
+    const found = await act({ do: 'find', q: 'DASHBOARD' });
+    assert.ok(found.hits.some((h) => h.key === '@ben' && /from the dashboard/.test(h.text)), 'search ignores upper/lower case');
+    assert.equal((await act({ do: 'verify', peer: 'ben' })).ok, true);
+    assert.ok(ann.peers.get('ben').verified);
+    assert.equal((await act({ do: 'thread', key: '@ben' })).thread.verified, true);
     ann.schedule('later', { at: Date.now() + 3600000, key: '@ben', text: 'later on' });
     const id = ann.scheduled('later')[0].id;
     assert.equal(JSON.parse((await request(ann.web.url('dashapi'))).text).scheduled.later[0].text, 'later on');

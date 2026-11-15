@@ -66,6 +66,38 @@ ul.plain li { padding: .12em 0; }
 .log li { display: grid; grid-template-columns: 9ch 1fr; gap: 1ch; }
 .stack { display: grid; gap: 2em; align-content: start; }
 
+/* search */
+.search { display: flex; align-items: center; gap: .6ch; border: 1px solid var(--border); border-radius: 5px; padding: .1em .8ch; }
+.search:focus-within { border-color: var(--accent); }
+.search input { background: none; border: 0; color: inherit; font: inherit; outline: none; width: 22ch; }
+.search kbd { color: var(--dim); font: inherit; }
+.hits li { display: grid; grid-template-columns: 9ch 14ch minmax(0, 1fr); gap: 1ch; padding: .2em 0; cursor: pointer; }
+.hits li:hover .txt { color: var(--accent); }
+.hits mark { background: color-mix(in srgb, var(--accent2) 30%, transparent); color: inherit; border-radius: 2px; }
+
+/* chats on the left, the open conversation on the right */
+.person { cursor: pointer; }
+.person[aria-current="true"] b { color: var(--accent); }
+.person[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); padding-left: 1ch; }
+.convo #convo { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: .5em; height: 100%; }
+.convo { display: flex; flex-direction: column; min-height: 22em; }
+.convo > #convo { flex: 1; }
+.tbar { display: flex; flex-wrap: wrap; gap: .5ch 1.5ch; align-items: center; color: var(--dim); }
+.tbar .grow { flex: 1; }
+.thread { list-style: none; margin: 0; padding: 0 .5ch 0 0; max-height: 26em; min-height: 10em; overflow-y: auto; display: flex; flex-direction: column; gap: .15em; overflow-wrap: anywhere; }
+.thread li { display: grid; grid-template-columns: 8ch minmax(0, 1fr); gap: 1ch; }
+.thread time { color: var(--dim); }
+.thread .from { font-weight: 700; color: var(--accent2); }
+.thread .mine .from { color: var(--accent); }
+[hidden] { display: none !important; }
+.thread .day { display: block; text-align: center; color: var(--dim); margin: .5em 0 .2em; }
+.thread .file { color: var(--accent); }
+.safety:empty { display: none; }
+.safety { border: 1px dashed var(--border); border-radius: 6px; padding: .5em 1.5ch; }
+.safety .num { color: var(--accent); letter-spacing: .04em; }
+#reply { margin-top: .2em; }
+.thread a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
 /* people: a row each, with things to do */
 .person { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .1em 2ch; padding: .45em 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); align-items: center; }
 .person:first-child { border-top: 0; padding-top: 0; }
@@ -96,26 +128,38 @@ footer { margin-top: 2em; color: var(--dim); }
   <h1>gossip <span class="dim">·</span> dashboard</h1>
   <span id="who" class="dim"></span>
   <span class="rule"></span>
+  <form class="search" id="searchForm" role="search"><input id="q" type="search" placeholder="search messages" aria-label="Search your messages (press / to start)" autocomplete="off"><kbd>/</kbd></form>
   <span id="status"></span>
 </header>
 
 <div class="grid">
+  <section class="box w12" id="resultsBox" hidden><h2>Search</h2><span class="aside" id="resultsAside"></span><ul class="plain hits" id="hits"></ul></section>
+
   <section class="box w12"><h2>Where your messages go</h2><span class="aside" id="mapAside"></span><div class="map" id="map"></div></section>
+
+  <section class="box w5"><h2>Chats</h2><span class="aside" id="peopleAside"></span><div id="people"></div></section>
+  <section class="box w7 convo" id="convoBox"><h2 id="convoTitle">Conversation</h2><span class="aside" id="convoAside"></span>
+    <div id="convoEmpty" class="dim">Pick a chat on the left to read it and reply here. It's the same chat as in your terminal.</div>
+    <div id="convo" hidden>
+      <div class="tbar" id="convoBar"></div>
+      <ol class="thread" id="thread" aria-live="polite"></ol>
+      <div class="safety" id="safety"></div>
+      <form class="write" id="reply"><span>›</span><input id="replyText" maxlength="4000" autocomplete="off" aria-label="Your message"></form>
+    </div>
+  </section>
 
   <section class="box w4"><h2>Connection</h2><dl class="kv" id="conn"></dl></section>
   <section class="box w4"><h2>Who is signed in as you</h2><div id="sessions"></div></section>
   <section class="box w4"><h2>Security</h2><div id="checks"></div></section>
 
-  <section class="box w7"><h2>People</h2><span class="aside" id="peopleAside"></span><div id="people"></div></section>
-  <section class="box w5"><h2>Quick settings</h2><div id="settings"></div></section>
-
   <section class="box w12"><h2>Every connection gossip makes</h2><div id="outbound"></div><div id="listening"></div></section>
 
   <section class="box w7"><h2>Who can read what</h2><div id="chats"></div><p class="dim note">Whatever passes messages along sees who talks to whom, and when. Never what.</p></section>
-  <section class="box w5"><h2>Your gossip</h2><div id="stats"></div></section>
+  <section class="box w5"><h2>Quick settings</h2><div id="settings"></div></section>
 
   <section class="box w7"><h2>Activity</h2><ul class="plain log" id="log"></ul></section>
   <div class="w5 stack">
+    <section class="box"><h2>Your gossip</h2><div id="stats"></div></section>
     <section class="box"><h2>Calls</h2><div id="calls"></div></section>
     <section class="box"><h2>Coming up</h2><div id="coming"></div></section>
   </div>
@@ -340,25 +384,150 @@ footer { margin-top: 2em; color: var(--dim); }
     return new Date(ts).toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + clock(ts);
   }
 
-  var writing = null, draft = ''; // whose message box is open, and what's typed in it
+  // ── chats on the left: people and servers ──────────────────────
+  var openKey = null; // the chat open in the conversation box ('@maya' / '#gamedev')
   function renderPeople() {
-    var list = S.people || [], busy = !!S.callNow;
+    var list = S.people || [], rooms = S.servers || [], busy = !!S.callNow;
     var on = list.filter(function (p) { return p.online === true; }).length;
     $('peopleAside').textContent = list.length ? on + ' of ' + list.length + ' online' : '';
-    if (!list.length) return paint('people', '<p class="dim">No contacts yet. In gossip, press Tab, then Add a person.</p>');
-    paint('people', list.map(function (p) {
-      var name = esc(p.name), off = busy || p.changed ? ' disabled' : '';
+    if (!list.length && !rooms.length) return paint('people', '<p class="dim">No chats yet. In gossip, press Tab, then Add a person or Join or create.</p>');
+    var html = list.map(function (p) {
+      var key = '@' + p.name, name = esc(p.name), off = busy || p.changed ? ' disabled' : '';
       var tag = p.changed ? ' <span class="warn">key changed!</span>' : p.verified ? ' <span class="ok" title="safety number checked">✓</span>' : '';
       var last = p.last ? (p.last.mine ? 'you: ' : '') + esc(p.last.text) + ' · ' + ago(p.last.ts) : 'no messages yet';
-      return '<div class="person"><span>' + dot(p.online) + ' <b>' + name + '</b>' + tag + (p.muted ? ' <span class="pill">muted</span>' : '') + '</span>' +
-        '<span class="do"><button class="mini" data-act="write" data-who="' + name + '" aria-pressed="' + (writing === p.name) + '">message</button>' +
-        '<button class="mini" data-act="call" data-who="' + name + '"' + off + ' title="voice call">call</button>' +
+      return '<div class="person" data-open="' + esc(key) + '" aria-current="' + (openKey === key) + '"><span>' + dot(p.online) + ' <b>' + name + '</b>' + tag + (p.muted ? ' <span class="pill">muted</span>' : '') + '</span>' +
+        '<span class="do"><button class="mini" data-act="call" data-who="' + name + '"' + off + ' title="voice call">call</button>' +
         '<button class="mini" data-act="video" data-who="' + name + '"' + off + ' title="video call">video</button></span>' +
-        '<span class="last">' + last + '</span>' +
-        (writing === p.name ? '<form class="write" data-who="' + name + '"><span>›</span><input maxlength="4000" placeholder="Message ' + name + ' (enter sends, esc closes)" aria-label="Message ' + name + '" value="' + esc(draft) + '"></form>' : '') +
-        '</div>';
-    }).join(''));
+        '<span class="last">' + last + '</span></div>';
+    }).join('');
+    html += rooms.map(function (r) {
+      var key = '#' + r.name;
+      var last = r.last ? (r.last.mine ? 'you' : esc(r.last.from)) + ': ' + esc(r.last.text) + ' · ' + ago(r.last.ts) : 'no messages yet';
+      return '<div class="person" data-open="' + esc(key) + '" aria-current="' + (openKey === key) + '"><span><span class="srv">#</span> <b>' + esc(r.name) + '</b> <span class="dim">' + r.members + ' ' + (r.members === 1 ? 'person' : 'people') + (r.mine ? ' · yours' : '') + (r.private ? ' · invite-only' : '') + '</span>' + (r.muted ? ' <span class="pill">muted</span>' : '') + '</span><span></span>' +
+        '<span class="last">' + last + '</span></div>';
+    }).join('');
+    paint('people', html);
   }
+
+  // ── the open conversation ───────────────────────────────────────
+  var T = null; // what the conversation box shows
+  function openChat(key) {
+    if (!key) return;
+    if (openKey !== key) {
+      openKey = key;
+      T = null;
+      painted.thread = painted.convoBar = painted.safety = painted.people = null;
+      $('convoEmpty').hidden = true;
+      $('convo').hidden = false;
+      $('convoTitle').textContent = key;
+      $('replyText').value = '';
+      $('replyText').placeholder = 'Message ' + key + ' (enter sends)';
+      renderPeople();
+    }
+    refreshChat(true);
+    $('replyText').focus();
+  }
+  function closeChat() {
+    $('replyText').blur();
+    openKey = null;
+    T = null;
+    $('convo').hidden = true;
+    $('convoEmpty').hidden = false;
+    $('convoTitle').textContent = 'Conversation';
+    $('convoAside').textContent = '';
+    painted.people = null;
+    renderPeople();
+  }
+  function refreshChat(jump) {
+    if (!openKey) return;
+    var key = openKey;
+    act({ do: 'thread', key: key }).then(function (r) {
+      if (key !== openKey) return;
+      if (!r || !r.ok) { $('convoAside').textContent = (r && r.error) || "can't open this chat"; return; }
+      T = r.thread;
+      renderChat(jump);
+    });
+  }
+  function dayOf(ts) {
+    var d = new Date(ts), now = new Date();
+    if (d.toDateString() === now.toDateString()) return 'Today';
+    if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  }
+  function renderChat(jump) {
+    if (!T) return;
+    var isDm = T.key[0] === '@', name = esc(T.key.slice(1));
+    // the bar: who, and what you can do
+    var bar = isDm
+      ? dot(T.online) + ' ' + (T.online === true ? 'online' : T.online === false ? 'offline' : 'not seen yet') + (T.typing ? ' · <span class="acc">typing…</span>' : '') +
+        (T.verified ? ' · <span class="ok">verified ✓</span>' : '') + '<span class="grow"></span>' +
+        '<button class="mini" data-act="call" data-who="' + name + '"' + (S.callNow || T.changed ? ' disabled' : '') + '>call</button>' +
+        '<button class="mini" data-act="video" data-who="' + name + '"' + (S.callNow || T.changed ? ' disabled' : '') + '>video</button>'
+      : esc(T.members.length + ' ' + (T.members.length === 1 ? 'person' : 'people') + ': ' + T.members.join(', ')) + '<span class="grow"></span>';
+    paint('convoBar', bar + '<button class="mini" data-act="close" title="close (esc)">close</button>');
+    $('convoAside').textContent = T.messages.length ? T.messages.length + (T.messages.length >= 80 ? '+ ' : ' ') + 'messages' : '';
+
+    // the messages, with a line for each new day
+    var html = '', day = '';
+    if (!T.messages.length) html = '<li class="day">No messages yet. Say hello!</li>';
+    T.messages.forEach(function (m) {
+      var d = dayOf(m.ts);
+      if (d !== day) { day = d; html += '<li class="day">' + esc(d) + '</li>'; }
+      var body = m.file ? '<span class="file">📎 ' + esc(m.file.name) + (m.file.size ? ' (' + bytes(m.file.size) + ')' : '') + '</span>' : linkify(esc(m.text));
+      html += '<li class="' + (m.mine ? 'mine' : '') + '"><time>' + clock(m.ts) + '</time><span><span class="from">' + (m.mine ? 'you' : esc(m.from)) + '</span> ' + body + '</span></li>';
+    });
+    var list = $('thread'), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    paint('thread', html);
+    if (jump || atBottom) list.scrollTop = list.scrollHeight;
+
+    // safety number: check it once, on a call or in person
+    var safe = '';
+    if (isDm && T.safety && (!T.verified || T.changed)) {
+      safe = (T.changed ? '<span class="warn">' + name + "'s security key changed.</span> " : '') +
+        'Safety number with ' + name + ': <span class="num">' + esc(T.safety) + '</span><br>' +
+        '<span class="dim">Ask ' + name + ' to read you theirs (gossip shows it with <b>/verify ' + esc(S.me || 'you') + '</b>). Same number = only the two of you can read this chat.</span> ' +
+        (T.changed ? '<span class="dim">If it matches, accept it in gossip: <b>/trust ' + name + '</b></span>' : '<button class="mini" data-act="verify" data-who="' + name + '">it matches - mark verified</button>');
+    }
+    paint('safety', safe);
+  }
+  function linkify(html) {
+    return html.replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>'; });
+  }
+  $('reply').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var input = $('replyText'), text = input.value.trim();
+    if (!text || !openKey) return;
+    input.value = '';
+    act({ do: 'send', key: openKey, text: text }).then(function (r) {
+      if (r && r.ok) { input.placeholder = 'Message ' + openKey + ' (enter sends)'; refreshChat(true); }
+      else { input.value = text; input.placeholder = 'Not sent: ' + ((r && r.error) || 'try again'); }
+    });
+  });
+
+  // ── search ──────────────────────────────────────────────────────
+  var searchTimer = null, lastQ = '';
+  function search(q) {
+    q = q.trim();
+    if (q === lastQ) return;
+    lastQ = q;
+    if (q.length < 2) { $('resultsBox').hidden = true; return; }
+    act({ do: 'find', q: q }).then(function (r) {
+      if (q !== lastQ) return;
+      var hits = (r && r.hits) || [];
+      $('resultsBox').hidden = false;
+      $('resultsAside').textContent = hits.length ? (hits.length >= 50 ? 'newest 50' : hits.length + ' found') + ' · esc closes' : 'esc closes';
+      var lower = q.toLowerCase();
+      $('hits').innerHTML = hits.length ? hits.map(function (h) {
+        // mark every place the words appear
+        var t = h.text.replace(/\s+/g, ' '), out = '', i = 0, j;
+        while ((j = t.toLowerCase().indexOf(lower, i)) >= 0) { out += esc(t.slice(i, j)) + '<mark>' + esc(t.slice(j, j + q.length)) + '</mark>'; i = j + q.length; }
+        out += esc(t.slice(i));
+        return '<li data-open="' + esc(h.key) + '" title="open this chat"><span class="dim" title="' + esc(new Date(h.ts).toLocaleString()) + '">' + esc(new Date(h.ts).toDateString() === new Date().toDateString() ? clock(h.ts) : new Date(h.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })) + '</span><span class="acc">' + esc(h.key) + '</span><span class="txt"><b>' + (h.mine ? 'you' : esc(h.from)) + '</b>: ' + out + '</span></li>';
+      }).join('') : '<li class="dim" style="display:block">Nothing saved on this computer mentions "' + esc(q) + '".</li>';
+    });
+  }
+  $('q').addEventListener('input', function () { clearTimeout(searchTimer); var v = this.value; searchTimer = setTimeout(function () { search(v); }, 220); });
+  $('searchForm').addEventListener('submit', function (e) { e.preventDefault(); lastQ = ''; search($('q').value); });
 
   var LABELS = { theme: 'colours', background: 'background', calls: 'who can call you', 'call.hideip': 'hide your IP on calls', notify: 'pop-ups', bell: 'sounds' };
   function renderSettings() {
@@ -386,45 +555,36 @@ footer { margin-top: 2em; color: var(--dim); }
     }).join('') + '</ul>' : '<p class="dim">Nothing scheduled. In gossip, try <b>/remind 10m stretch</b> or <b>/later 8am good morning!</b></p>');
   }
 
-  function openWriter(who) {
-    writing = writing === who ? null : who;
-    draft = '';
-    painted.people = null;
-    renderPeople();
-    var i = document.querySelector('.write input');
-    if (i) i.focus();
-  }
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-act]');
-    if (!b || b.disabled) return;
-    var a = b.getAttribute('data-act'), who = b.getAttribute('data-who');
-    if (a === 'write') return openWriter(who);
-    var body = a === 'call' || a === 'video' ? { do: 'call', peer: who, video: a === 'video' }
-      : a === 'dnd' ? { do: 'dnd', for: b.getAttribute('data-for') }
-        : a === 'unschedule' ? { do: 'unschedule', kind: b.getAttribute('data-kind'), id: b.getAttribute('data-id') }
-          : { do: a };
-    b.disabled = true;
-    act(body).then(function (r) {
-      painted = {};
-      if (r && r.error) $('status').innerHTML = '<span class="err">●</span> ' + esc(r.error);
-      setTimeout(load, r && r.error ? 2500 : 0);
-    });
+    if (b) {
+      if (b.disabled) return;
+      var a = b.getAttribute('data-act'), who = b.getAttribute('data-who');
+      if (a === 'close') return closeChat();
+      var body = a === 'call' || a === 'video' ? { do: 'call', peer: who, video: a === 'video' }
+        : a === 'dnd' ? { do: 'dnd', for: b.getAttribute('data-for') }
+          : a === 'unschedule' ? { do: 'unschedule', kind: b.getAttribute('data-kind'), id: b.getAttribute('data-id') }
+            : a === 'verify' ? { do: 'verify', peer: who }
+              : { do: a };
+      b.disabled = true;
+      act(body).then(function (r) {
+        painted = {};
+        if (r && r.error) $('status').innerHTML = '<span class="err">●</span> ' + esc(r.error);
+        if (a === 'verify') refreshChat();
+        setTimeout(load, r && r.error ? 2500 : 0);
+      });
+      return;
+    }
+    var row = e.target.closest && e.target.closest('[data-open]');
+    if (row && !(e.target.closest('a'))) openChat(row.getAttribute('data-open'));
   });
-  document.addEventListener('submit', function (e) {
-    var f = e.target.closest && e.target.closest('form.write');
-    if (!f) return;
-    e.preventDefault();
-    var input = f.querySelector('input'), text = input.value.trim();
-    if (!text) return;
-    input.disabled = true;
-    act({ do: 'send', to: f.getAttribute('data-who'), text: text }).then(function (r) {
-      input.disabled = false;
-      if (r && r.ok) { input.value = ''; draft = ''; input.placeholder = 'Sent ✓  (write another, or esc)'; } else input.placeholder = 'Not sent: ' + ((r && r.error) || 'try again');
-      input.focus();
-    });
+  document.addEventListener('keydown', function (e) {
+    var t = e.target, typing = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
+    if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey) { e.preventDefault(); $('q').focus(); $('q').select(); return; }
+    if (e.key !== 'Escape') return;
+    if (t === $('q') || !$('resultsBox').hidden) { $('q').value = ''; lastQ = ''; $('resultsBox').hidden = true; if (t === $('q')) t.blur(); return; }
+    if (openKey) { if (t === $('replyText') && t.value) { t.value = ''; return; } closeChat(); }
   });
-  document.addEventListener('input', function (e) { if (e.target.closest && e.target.closest('form.write')) draft = e.target.value; });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && writing) openWriter(writing); });
   document.addEventListener('change', function (e) {
     var k = e.target.getAttribute && e.target.getAttribute('data-key');
     if (!k) return;
@@ -440,6 +600,7 @@ footer { margin-top: 2em; color: var(--dim); }
       S = s;
       if (s.connection.ping != null) { pings.push(s.connection.ping); if (pings.length > 40) pings.shift(); }
       render();
+      refreshChat(false);
     }).catch(function () {
       if (++failures > 2) $('status').innerHTML = '<span class="err">●</span> gossip was closed';
     });

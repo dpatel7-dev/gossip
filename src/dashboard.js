@@ -99,6 +99,63 @@ function people(app) {
   }).sort((a, b) => (b.online === true) - (a.online === true) || ((b.last && b.last.ts) || 0) - ((a.last && a.last.ts) || 0));
 }
 
+/** Your servers, with how many are in each and the last thing said. */
+function servers(app) {
+  return app.rooms().map((name) => {
+    const chat = app.chats.get('#' + name);
+    const last = app.vault.loadHistory('#' + name, 1).filter((r) => typeof r.text === 'string').pop();
+    return {
+      name, members: chat && chat.members ? chat.members.size : 0, owner: chat ? chat.owner : null,
+      mine: !!(chat && chat.owner === app.me), private: !!(chat && chat.private), muted: app.muted('#' + name),
+      last: last ? { ts: last.ts, from: last.from, mine: last.from === app.me, text: last.file ? `[file] ${last.file.name}` : last.text.replace(/\s+/g, ' ').slice(0, 80) } : null,
+    };
+  });
+}
+
+/** A chat you may read and write from the page: one of your contacts, or a server you're in. */
+function chatKey(app, key) {
+  if (typeof key !== 'string') return null;
+  if (key[0] === '@') { const p = app.peers.get(key.slice(1)); return p && p.contact ? key : null; }
+  if (key[0] === '#') return app.rooms().includes(key.slice(1)) ? key : null;
+  return null;
+}
+
+/** The last messages of one chat, for the conversation box. */
+function thread(app, key) {
+  const msgs = app.vault.loadHistory(key, 80).filter((r) => typeof r.from === 'string').map((r) => ({
+    id: r.id, from: r.from, mine: r.from === app.me, ts: r.ts, st: r.st || null,
+    text: r.file ? null : String(r.text || ''), file: r.file ? { name: String(r.file.name || 'a file'), size: r.file.size || 0 } : null,
+  }));
+  const out = { key, messages: msgs };
+  if (key[0] === '@') {
+    const name = key.slice(1);
+    const p = app.peers.get(name);
+    out.online = app.presence.has(name) ? app.presence.get(name) : null;
+    out.verified = !!(p && p.verified);
+    out.changed = !!(p && p.changed);
+    out.typing = (app.chats.get(key) && app.chats.get(key).typing && app.chats.get(key).typing.size > 0) || false;
+    if (p && p.signPub) out.safety = e2e.safetyNumber(app.identity.signPub, p.changed ? p.changed.signPub : p.signPub);
+  } else {
+    const chat = app.chats.get(key);
+    out.members = chat && chat.members ? [...chat.members.keys()].sort() : [];
+    out.owner = chat ? chat.owner : null;
+  }
+  return out;
+}
+
+/** Your saved messages that mention some words, newest first. */
+function find(app, q) {
+  const want = String(q || '').trim().toLowerCase().slice(0, 200);
+  if (!want) return [];
+  const hits = [];
+  for (const key of app.vault.conversations()) {
+    for (const r of app.vault.loadHistory(key, 5000)) {
+      if (typeof r.text === 'string' && r.text.toLowerCase().includes(want)) hits.push({ key, from: r.from, mine: r.from === app.me, ts: r.ts, text: r.text.slice(0, 300) });
+    }
+  }
+  return hits.sort((a, b) => b.ts - a.ts).slice(0, 50);
+}
+
 /** How much room gossip takes on this computer. */
 function storage(app) {
   const size = (dir, deep) => {
@@ -196,6 +253,7 @@ async function snapshot(app) {
     activity: app.activity.slice(-60).reverse(),
     theme: prefs.val('theme'),
     people: people(app),
+    servers: servers(app),
     dnd: app.dndUntil(),
     scheduled: { later: app.scheduled('later'), reminders: app.scheduled('reminders') },
     settings: Object.fromEntries(SETTABLE.map((k) => [k, { value: prefs.val(k), choices: prefs.OPTIONS.find((o) => o.key === k).choices }])),
@@ -224,8 +282,17 @@ function routes(app, web) {
         app.link.retryNow();
       } else if (m.do === 'call' && app.calls && typeof m.peer === 'string' && app.peers.get(m.peer) && app.peers.get(m.peer).contact) {
         await app.calls.start(m.peer, { video: !!m.video });
-      } else if (m.do === 'send' && typeof m.to === 'string' && typeof m.text === 'string' && m.text.trim() && app.peers.get(m.to) && app.peers.get(m.to).contact) {
-        await app.send('@' + m.to, m.text.slice(0, 4000));
+      } else if (m.do === 'send' && typeof m.text === 'string' && m.text.trim() && chatKey(app, m.key || (typeof m.to === 'string' ? '@' + m.to : null))) {
+        await app.send(chatKey(app, m.key || '@' + m.to), m.text.slice(0, 4000));
+      } else if (m.do === 'thread' && chatKey(app, m.key)) {
+        result = { ok: true, thread: thread(app, m.key) };
+      } else if (m.do === 'find' && typeof m.q === 'string') {
+        result = { ok: true, hits: find(app, m.q) };
+      } else if (m.do === 'verify' && typeof m.peer === 'string' && chatKey(app, '@' + m.peer)) {
+        const p = app.peers.get(m.peer);
+        if (p.changed) throw new Error(`${m.peer}'s key changed - compare the new number first, then accept it in gossip with /trust ${m.peer}`);
+        app.peers.update(m.peer, (cur) => ({ ...(cur || p), verified: true }));
+        app.log('ok', `Marked ${m.peer} as verified from the dashboard.`);
       } else if (m.do === 'set' && SETTABLE.includes(m.key)) {
         const res = prefs.set(app.vault, m.key, m.value);
         app.settings = res.settings;

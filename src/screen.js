@@ -15,7 +15,7 @@ const M = require('./mascot');
 const prefs = require('./prefs');
 const { Editor } = require('./editor');
 const { Menu, pages } = require('./menu');
-const { handleInput } = require('./commands');
+const { handleInput, suggest } = require('./commands');
 const pkg = require('../package.json');
 
 const notify = require('./notify');
@@ -29,10 +29,10 @@ function fits(out = process.stdout) {
   return (out.columns || 80) >= 46 && (out.rows || 24) >= 12;
 }
 
-function run(app, { firstRun = false, notice = null, startup = null } = {}) {
+function run(app, { firstRun = false, notice = null, startup = null, input = process.stdin, output = process.stdout } = {}) {
   return new Promise((resolve) => {
-    const out = process.stdout;
-    const inp = process.stdin;
+    const out = output; // (tests hand in pretend terminals)
+    const inp = input;
     const ed = new Editor();
     const keys = new EventEmitter(); // keystrokes, after the mouse reports are taken out
 
@@ -60,6 +60,10 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     let booting = false;
     let typedAt = 0;
     let typingNow = false;
+    let pal = null; // suggestions above the typing box, while you type /… @… #…
+    let palHiddenFor = null; // (esc hides them until the text changes)
+    const drafts = new Map(); // what you'd typed in each chat, kept when you switch away
+    let below = 0; // messages that arrived under where you've scrolled to
     const pet = { scene: null, pose: null, frames: null, at: 0, total: 0, timer: null }; // Pebble, in the corner
 
     const host = () => {
@@ -79,6 +83,11 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
 
     function open(key) {
       if (key === sel) return;
+      // each chat keeps its own half-typed message, so it never goes to the wrong person
+      if (ed.text && !/^[/@#]/.test(ed.text)) drafts.set(sel || '', ed.text); else drafts.delete(sel || '');
+      if (!/^[/@#]/.test(ed.text) || !ed.text) ed.set(drafts.get(key || '') || '');
+      drafts.delete(key || '');
+      below = 0;
       sel = key;
       cursor = key || cursor;
       scroll = 0;
@@ -102,6 +111,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
         const mine = item.msg.from === app.me;
         if (item.key !== sel && !mine) unread.set(item.key, (unread.get(item.key) || 0) + 1);
         if (item.key === sel && mine) scroll = 0;
+        if (item.key === sel && !mine && scroll > 0) below++;
         react(mine ? 'dance' : 'phone');
         const away = focusKnown ? !focused : Date.now() - lastKeyAt > 10000;
         if (!mine && away && !app.muted(item.key)) notify.message(prefs.val('notify'), item.key, item.msg);
@@ -273,10 +283,13 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
       const right = statusText();
       const rw = A.vwidth(right);
       const call = app.calls && app.calls.current;
+      const waiting = unreadElsewhere();
       const options = flashing ? [flash.text] : call ? [callText(call)] : typing ? [typing]
         : menu.active ? ['']
-          : scroll ? ['pgdn or esc for the newest messages']
-            : ['↑↓ chats · tab menu · enter send · pgup/pgdn scroll', '↑↓ chats · tab menu · enter send', 'tab menu', ''];
+          : pal ? ['tab complete · ↑↓ choose · enter ' + (pal.stage === 'cmd' ? 'run' : 'pick') + ' · esc hide', 'tab complete · ↑↓ choose · esc hide', 'tab complete', '']
+            : scroll ? [below ? `↓ ${below} new below · pgdn or esc for the newest` : 'pgdn or esc for the newest messages', below ? `↓ ${below} new · esc` : 'esc: newest']
+              : waiting ? [`ctrl+n next unread (${waiting}) · ↑↓ chats · tab menu · / commands`, `ctrl+n next unread (${waiting}) · tab menu`, `ctrl+n unread (${waiting})`, '']
+                : ['↑↓ chats · tab menu · enter send · / commands · pgup/pgdn scroll', '↑↓ chats · tab menu · enter send · / commands', '↑↓ chats · tab menu · enter send', 'tab menu', ''];
       const text = options.find((t) => 2 + A.width(t) + 2 + rw <= w);
       const left = ' ' + Th.dim(text === undefined ? A.ellipsis(options[0], Math.max(0, w - rw - 4)) : text);
       const lw = A.vwidth(left);
@@ -318,6 +331,14 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
         pane = all.slice(Math.max(0, end - msgH), end);
         if (!all.length) pane = ['', R.center(Th.dim('No messages yet. Say hello!'), paneW)];
         else if (pane.length < msgH) pane = Array(msgH - pane.length).fill('').concat(pane); // newest at the bottom
+      }
+
+      // suggestions sit just above the typing box
+      refreshPalette();
+      if (pal && !menu.active && msgH >= 4) {
+        const pl = paletteLines(paneW - 2, Math.max(1, Math.min(7, msgH - 3)));
+        while (pane.length < msgH) pane.push('');
+        pane = pane.slice(0, msgH - pl.length - 1).concat([Th.border('┄'.repeat(paneW - 2))], pl);
       }
 
       // the left side
@@ -515,6 +536,85 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
     };
     const menu = new Menu(ctx, schedule);
 
+    // ── suggestions while you type ────────────────────────────────────────
+    // "/" lists commands, "@" people, "#" servers; after "/call " it lists people.
+    function refreshPalette() {
+      if (menu.active || palHiddenFor === ed.text) { pal = null; return; }
+      palHiddenFor = null;
+      const s = suggest(app, ed.text);
+      if (!s) { pal = null; return; }
+      const same = pal && pal.text === ed.text;
+      // highlight the first one - unless what's typed is already exactly one of them
+      const exact = s.items.some((it) => it.value === ed.text.trim());
+      let index = s.stage === 'cmd' || !exact ? 0 : -1;
+      if (same) index = Math.min(pal.index, s.items.length - 1);
+      pal = { ...s, index, top: same ? pal.top : 0, text: ed.text };
+    }
+
+    function paletteLines(w, max) {
+      const items = pal.items;
+      const n = Math.max(1, Math.min(items.length, max - (items.length > max ? 1 : 0)));
+      let top = pal.top || 0;
+      if (pal.index >= 0) {
+        if (pal.index < top) top = pal.index;
+        if (pal.index >= top + n) top = pal.index - n + 1;
+      }
+      top = Math.max(0, Math.min(top, items.length - n));
+      pal.top = top;
+      let labelW = 0;
+      for (const it of items) labelW = Math.max(labelW, A.width(it.label) + (it.hint ? A.width(it.hint) + 1 : 0));
+      labelW = Math.min(labelW, Math.floor(w * 0.45));
+      const lines = [];
+      for (let i = top; i < top + n; i++) {
+        const it = items[i];
+        const used = A.width(it.label) + (it.hint ? A.width(it.hint) + 1 : 0);
+        const gap = ' '.repeat(Math.max(2, labelW - used + 2));
+        const head = i === pal.index ? Th.accent2('›', { bold: true }) + ' ' + Th.accent(it.label, { bold: true }) : '  ' + it.label;
+        lines.push(A.clip(head + (it.hint ? Th.dim(' ' + it.hint) : '') + gap + Th.dim(it.desc || ''), w));
+      }
+      if (items.length > n) lines.push(Th.dim(`  … ${items.length - n} more - keep typing to narrow it down`));
+      return lines;
+    }
+
+    function movePalette(step) {
+      const n = pal.items.length;
+      pal.index = pal.index < 0 ? (step > 0 ? 0 : n - 1) : (pal.index + step + n) % n;
+    }
+
+    function completeFromPalette() {
+      const it = pal.items[pal.index >= 0 ? pal.index : 0];
+      ed.set(it.value + (pal.stage === 'arg' || it.hint ? ' ' : ''));
+      if (pal.stage === 'arg' && it.value[0] !== '/') palHiddenFor = ed.text; // picked who: now the message
+    }
+
+    function submitFromPalette() {
+      const it = pal.index >= 0 ? pal.items[pal.index] : null;
+      if (!it) return submit();
+      if (pal.stage === 'cmd') {
+        if (it.needsArg) { ed.set(it.value + ' '); return; } // show what it needs instead of running it empty
+        ed.set(it.value);
+        return submit();
+      }
+      if (it.value[0] === '/') { ed.set(it.value); return submit(); }
+      // picked who to talk to: open that chat, ready for the message
+      ed.clear();
+      handleInput(ctx, it.value).catch((e) => app.say(e.message || String(e), 'err'));
+    }
+
+    // ── unread elsewhere ────────────────────────────────────────────────────
+    function unreadElsewhere() {
+      let n = 0;
+      for (const [k, c] of unread) if (k !== sel && !app.muted(k)) n += c;
+      return n;
+    }
+
+    function nextUnread() {
+      const keys = sideRows().filter((r) => r.chat && r.chat !== sel && unread.get(r.chat) && !app.muted(r.chat)).map((r) => r.chat);
+      if (!keys.length) { flash = { text: 'Nothing unread', until: Date.now() + 1500 }; return; }
+      cursor = keys[0];
+      open(keys[0]);
+    }
+
     function submit() {
       const text = ed.text;
       if (!text.trim()) {
@@ -550,16 +650,18 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
       if (menu.active && !pasting) { menu.key(str, key); schedule(); return; }
       if (booting && stage) stage.stop(); // any key skips the hello and goes to your chat
       const before = ed.text;
+      if (!pasting) refreshPalette(); // (keys typed in one quick burst must see the suggestions for what's typed now)
 
       if (pasting) {
         if (name === 'return' || name === 'enter') ed.insert('\n');
         else if (name === 'tab') ed.insert('  ');
         else if (printable(str)) ed.insert(str);
       } else if (name === 'escape') {
-        if (stage) stage.stop();
+        if (pal) palHiddenFor = ed.text;
+        else if (stage) stage.stop();
         else if (ed.text) ed.clear();
         else if (app.calls && app.calls.ringing) app.calls.decline().catch((e) => app.say(e.message, 'err'));
-        else scroll = 0;
+        else { scroll = 0; below = 0; }
       } else if (key.ctrl) {
         switch (name) {
           case 'c': ctrlC(); break;
@@ -572,6 +674,7 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
           case 'left': ed.wordLeft(); break;
           case 'right': ed.wordRight(); break;
           case 'l': prev = []; out.write(P.ink() + '\x1b[2J'); break;
+          case 'n': nextUnread(); break;
           default:
         }
       } else if (key.meta) {
@@ -581,13 +684,13 @@ function run(app, { firstRun = false, notice = null, startup = null } = {}) {
         else if (name === 'f' || name === 'right') ed.wordRight();
       } else {
         switch (name) {
-          case 'return': submit(); break;
+          case 'return': if (pal) submitFromPalette(); else submit(); break;
           case 'enter': ed.insert('\n'); break; // Ctrl+J
-          case 'tab': menu.open(); break;
-          case 'up': move(-1); break;
-          case 'down': move(1); break;
+          case 'tab': if (pal) completeFromPalette(); else menu.open(); break;
+          case 'up': if (pal) movePalette(-1); else move(-1); break;
+          case 'down': if (pal) movePalette(1); else move(1); break;
           case 'pageup': scroll += page(); break;
-          case 'pagedown': scroll = Math.max(0, scroll - page()); break;
+          case 'pagedown': scroll = Math.max(0, scroll - page()); if (!scroll) below = 0; break;
           case 'backspace': ed.backspace(); break;
           case 'delete': ed.del(); break;
           case 'left': ed.left(); break;

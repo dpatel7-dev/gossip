@@ -68,10 +68,12 @@ Type `gossip`.
 
 | Key | What it does |
 | --- | --- |
-| `↑` `↓` | Move between your chats |
+| `↑` `↓` | Move between your chats (whatever you'd half typed waits in its own chat) |
 | `Tab` | Open the menu: add people, join or create servers, invite, remove, block, colours, every setting |
 | `Enter` | Send |
-| `PgUp` `PgDn` | Scroll back through the conversation |
+| `/` `@` `#` | Start typing a command, a person or a server and suggestions pop up: `↑` `↓` to choose, `Tab` to complete, `Esc` to hide |
+| `Ctrl+N` | Jump to the next chat with unread messages |
+| `PgUp` `PgDn` | Scroll back through the conversation (it tells you when new messages arrive below) |
 | Mouse | Click a chat; scroll with the wheel (hold Shift to select text) |
 | `Ctrl+D` | Leave |
 
@@ -195,7 +197,8 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 /answer  /decline  /hangup  # (inside a chat) or just Enter / Esc while it rings
                             # in a call: t chat, 1-5 reactions, d pick mic/camera/speaker, p pop out, f fullscreen
 /dashboard                  # (inside a chat) every connection, who can read what, activity -
-                            # and call, message or change settings right from the page
+                            # plus read and reply to any chat, search your messages,
+                            # check safety numbers, call, and change settings from the page
 /remind 10m stretch         # (inside a chat) a reminder; /remind 5pm call mom, /remind lists them
 /later 8am happy birthday!  # (inside a chat) send to this chat later; /later lists them
 /dnd 1h                     # (inside a chat) do not disturb: no sounds or pop-ups (/dnd off)
