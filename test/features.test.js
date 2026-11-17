@@ -294,3 +294,22 @@ test('security: "strict" refuses a connection that is not encrypted', async () =
     app.close();
   }
 });
+
+test('penguin: on "auto", macOS Terminal keeps the blocky penguin even after it reports its colours', () => {
+  const M = require('../src/mascot');
+  const was = process.env.TERM_PROGRAM;
+  process.env.TERM_PROGRAM = 'Apple_Terminal';
+  try {
+    // a fresh copy, so the choice is made under macOS Terminal
+    delete require.cache[require.resolve('../src/mascot')];
+    const fresh = require('../src/mascot');
+    assert.strictEqual(fresh.styleNow(), 'blocky');
+    fresh.setBackdrop([20, 20, 20]); // the colour reply arrives (often when you start typing)
+    assert.strictEqual(fresh.styleNow(), 'blocky', 'it does not switch to the detailed penguin');
+  } finally {
+    if (was === undefined) delete process.env.TERM_PROGRAM; else process.env.TERM_PROGRAM = was;
+    delete require.cache[require.resolve('../src/mascot')];
+    require('../src/mascot');
+    void M;
+  }
+});

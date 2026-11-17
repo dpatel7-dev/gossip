@@ -2,6 +2,9 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.9.1
+- The penguin keeps its look: on macOS Terminal, "auto" picks the blocky penguin once and keeps it. Before, it switched to the detailed one when you started typing (that's when macOS Terminal reports its colours) and never switched back. Choose the detailed one any time in settings (mascot.style smooth).
+
 ## 0.9.0
 - Suggestions while you type in the chat screen: start with `/` for commands, `@` for people or `#` for servers. `↑` `↓` choose, `Tab` completes, `Enter` runs or opens it, `Esc` hides the list.
 - Each chat keeps its own half-typed message. Switch to another chat and back, and it's still there - and it never gets sent to the wrong person.

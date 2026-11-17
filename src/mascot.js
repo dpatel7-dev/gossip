@@ -283,10 +283,13 @@ function styleNow() {
     want = require('./prefs').val('mascot.style');
   } catch { /* settings not loaded: auto */ }
   if (want === 'smooth' || want === 'blocky') return want;
-  // macOS Terminal draws the detailed penguin cleanly only when it has told us its
-  // background colour (see setBackdrop); until then the blocky one is the safe choice.
-  return process.env.TERM_PROGRAM === 'Apple_Terminal' && !backdrop ? 'blocky' : 'smooth';
+  // On "auto" the choice is made once and kept, so the penguin never swaps style
+  // halfway through (macOS Terminal tells us its colours late, often only when you
+  // start typing). macOS Terminal gets the blocky penguin; pick smooth in settings.
+  if (!autoPick) autoPick = process.env.TERM_PROGRAM === 'Apple_Terminal' ? 'blocky' : 'smooth';
+  return autoPick;
 }
+let autoPick = null;
 
 const sceneOf = (name, style) => {
   const set = (style || styleNow()) === 'blocky' ? MINI : SCENES;
