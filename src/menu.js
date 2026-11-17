@@ -65,6 +65,7 @@ function root(m) {
         : { label: 'Do not disturb', desc: 'no sounds or pop-ups for a while', run: () => quietPage(m) },
       { label: 'Reminders and later messages', desc: 'remind yourself, or send something later', run: () => laterPage(m) },
       ...(m.ctx.goMini ? [{ label: 'Shrink to the corner', desc: 'a tiny chat with quick replies while you work', run: () => m.ctx.goMini() }] : []),
+      { label: 'YouTube player', desc: 'play a video, or watch one together', run: () => videoPage(m) },
       { label: 'Dashboard', desc: 'connections and who can see what, in your browser', run: run(m, 'dashboard') },
       { label: 'Check for updates', desc: 'without leaving the chat', run: run(m, 'update') },
       { label: "What's new", desc: 'update notes', run: run(m, 'changelog') },
@@ -85,6 +86,20 @@ function chats(m) {
   }
   for (const r of app.rooms()) items.push({ label: '#' + r, desc: 'server', room: true, run: () => app.setTarget('#' + r) });
   return { title: 'Chat with…', items, filter: true };
+}
+
+function videoPage(m) {
+  const { app } = m;
+  const key = app.target;
+  const pl = app.player;
+  const items = [
+    { label: 'Play a YouTube link…', desc: "it plays in gossip's own player window", run: ask('Play a YouTube video', 'Paste the YouTube link', 'Copy the address of a video on YouTube, then paste it here.', (t) => m.run('yt ' + t.trim())) },
+    { label: 'Open the player', desc: key ? `with the newest video from ${key[0] === '#' ? key : key.slice(1)}` : 'paste links and pick videos there', run: run(m, 'yt') },
+    { label: key ? 'Videos in this chat' : 'Videos in your chats', desc: 'every YouTube link people sent, newest first', run: run(m, 'videos') },
+  ];
+  if (pl && pl.together) items.push({ label: 'Stop watching together', desc: 'the video keeps playing just for you', run: run(m, 'watch stop') });
+  else if (key) items.push({ label: `Watch together with ${key[0] === '#' ? key : key.slice(1)}`, desc: 'play, pause and skip happen for everyone', run: run(m, 'watch') });
+  return { title: 'YouTube player', items };
 }
 
 function thisChat(m) {

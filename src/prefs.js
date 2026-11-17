@@ -42,6 +42,7 @@ const OPTIONS = [
   { key: 'call.turn', text: 300, def: '', desc: 'Your own TURN server for calls on strict networks: turn:host:port username password' },
   { key: 'call.hideip', choices: ['off', 'on'], def: 'off', desc: 'Hide your IP address from people you call (needs a call relay on your gossip website)' },
   { key: 'calls', choices: ['contacts', 'everyone', 'off'], def: 'contacts', desc: 'Who can call you' },
+  { key: 'player', choices: ['window', 'tab'], def: 'window', desc: "Where /yt plays YouTube videos: a window of its own (if you have Chrome, Edge or Brave) or a browser tab" },
   { key: 'notify', choices: ['on', 'preview', 'off'], def: 'on', desc: 'Desktop pop-up for new messages when you are away: who it is from, with a preview, or never' },
   { key: 'emoji', choices: ['on', 'off'], def: 'on', desc: 'Turn :smile: style words into emoji when you send' },
   { key: 'bell', choices: ['all', 'mentions', 'off'], def: 'all', desc: 'Sound for DMs and @mentions, only @mentions, or never' },

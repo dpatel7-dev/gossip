@@ -267,6 +267,38 @@ class App extends EventEmitter {
     await this.link.request('send', { env });
   }
 
+  /**
+   * Send "watching together" news (play, pause, jump) to a chat: encrypted like
+   * a message, but never shown or saved. `only` limits it to these people, so
+   * nobody who isn't watching gets a pile of it waiting for them.
+   */
+  async watchSignal(key, data, only = null) {
+    if (!this.link || !this.link.online) throw fail('offline', "You're offline");
+    const chat = this.chat(key);
+    if (chat.kind === 'dm') {
+      if (only && !only.has(chat.name)) return false;
+      const peer = await this.peerFor(chat.name);
+      if (peer.changed) return false;
+      const env = e2e.seal({
+        identity: this.identity, from: this.me, conv: P.dmConv(this.me, peer.name),
+        recipients: [{ name: peer.name, dhPub: peer.dhPub }], payload: { watch: data }, id: e2e.randomId(), ts: Date.now(),
+      });
+      await this.link.request('send', { env });
+      return true;
+    }
+    if (!chat.joined) return false;
+    if (!chat.members.size) await this._refreshMembers(chat);
+    const recipients = [];
+    for (const name of chat.members.keys()) {
+      const p = this.peers.get(name);
+      if (name !== this.me && p && !p.changed && (!only || only.has(name))) recipients.push({ name, dhPub: p.dhPub });
+    }
+    if (!recipients.length) return false;
+    const env = e2e.seal({ identity: this.identity, from: this.me, conv: P.roomConv(chat.name), recipients, payload: { watch: data }, id: e2e.randomId(), ts: Date.now() });
+    await this.link.request('send', { env });
+    return true;
+  }
+
   say(text, kind = 'sys') {
     if (kind !== 'sys') this.log(kind, text);
     this.emit('line', { t: 'note', kind, text });
@@ -1043,6 +1075,11 @@ class App extends EventEmitter {
       // call details (ring, answer, hang up): handled by the call code, never shown or saved
       if (payload && payload.call && typeof payload.call === 'object' && chat.kind === 'dm') {
         this.emit('signal', { from, data: payload.call, ts: env.ts });
+        return;
+      }
+      // watching a video together (play, pause, jump): for the player, never shown or saved
+      if (payload && payload.watch && typeof payload.watch === 'object') {
+        if (Math.abs(Date.now() - env.ts) < 120000) this.emit('watch', { key, from, data: payload.watch, ts: env.ts });
         return;
       }
       if (payload && payload.file && typeof payload.file === 'object') {

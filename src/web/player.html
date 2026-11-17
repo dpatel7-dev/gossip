@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gossip · player</title>
+<!--__ICON__-->
+<style>
+/*__THEME__*/
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; padding: 1.4em 2ch 2em; color: var(--fg);
+  font: 14px/1.55 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.dim { color: var(--dim); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.acc { color: var(--accent); }
+.acc2 { color: var(--accent2); }
+b { font-weight: 700; }
+
+header { display: flex; align-items: center; gap: 1.5ch; margin: 0 0 1.4em; flex-wrap: wrap; }
+header canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+header h1 { margin: 0; font-size: 1em; font-weight: 700; color: var(--accent); }
+header .rule { flex: 1; border-top: 1px solid var(--border); min-width: 4ch; }
+
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 2em 2ch; align-items: start; }
+.box { position: relative; border: 1px solid var(--border); border-radius: 8px; padding: 1.15em 2ch 1em; min-width: 0; }
+.box > h2 { position: absolute; top: -.8em; left: 1.5ch; margin: 0; padding: 0 .6ch; background: var(--bg); font: inherit; font-weight: 700; color: var(--accent2); }
+.box > .aside { position: absolute; top: -.8em; right: 1.5ch; padding: 0 .6ch; background: var(--bg); color: var(--dim); }
+.box > .aside a { color: var(--dim); text-decoration: none; }
+.box > .aside.ok { color: var(--ok); }
+.box > .aside a:hover { color: var(--accent); }
+.w8 { grid-column: span 8; } .w4 { grid-column: span 4; }
+.stack { display: grid; gap: 2em; align-content: start; }
+
+/* the screen */
+.screen { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; margin-top: .3em; }
+.screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 1.2em; padding: 2em; text-align: center; color: #9aa4b6; }
+.empty canvas { width: 96px; height: 96px; image-rendering: pixelated; }
+.empty p { margin: 0; max-width: 40ch; }
+.gate { position: absolute; inset: 0; display: grid; place-content: center; background: rgba(0, 0, 0, .72); }
+.gate button { background: var(--accent); color: #0b0f17; border: 0; border-radius: 6px; padding: .7em 2.4ch; font-weight: 700; cursor: pointer; }
+.np { display: flex; gap: .3em 2ch; align-items: baseline; flex-wrap: wrap; margin-top: .8em; }
+.np .grow { flex: 1; }
+.np #title { font-weight: 700; overflow-wrap: anywhere; }
+.np #time { color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.keys { margin-top: .5em; color: var(--dim); font-size: .92em; }
+.keys kbd { font: inherit; color: var(--fg); }
+
+/* typing a link */
+.write { display: flex; gap: 1ch; }
+.write span { color: var(--accent2); font-weight: 700; }
+.write input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px solid var(--border); outline: none; padding: .1em 0; }
+.write input:focus { border-color: var(--accent); }
+.note { margin: .7em 0 0; font-size: .92em; color: var(--dim); }
+.note.err { color: var(--warn); }
+
+/* watching together */
+.act { background: none; border: 1px solid var(--border); border-radius: 5px; padding: .2em 1.2ch; cursor: pointer; }
+.act:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.act.danger:hover { border-color: var(--err); color: var(--err); }
+.act:disabled { opacity: .45; cursor: default; }
+.row { display: flex; flex-wrap: wrap; gap: .6em 1ch; align-items: center; margin-top: .8em; }
+select { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .15em .5ch; max-width: 100%; }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+.people li { padding: .1em 0; }
+.people .lead { color: var(--dim); }
+.log { margin: .8em 0 0; padding: .6em 0 0; border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); list-style: none; color: var(--dim); font-size: .92em; }
+.log li { display: grid; grid-template-columns: 7ch 1fr; gap: 1ch; }
+.invites li { display: flex; gap: 1ch; align-items: center; justify-content: space-between; padding: .3em 0; }
+p { margin: 0; }
+
+/* videos from your chats */
+.vids { display: grid; gap: .25em; max-height: 26em; overflow-y: auto; margin-right: -1ch; padding-right: 1ch; }
+.vid { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 1.2ch; align-items: center; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: .3em .6ch; cursor: pointer; }
+.vid:hover { border-color: var(--border); }
+.vid[aria-current="true"] { border-color: var(--accent); }
+.vid img, .vid .ph { width: 72px; height: 40px; border-radius: 4px; object-fit: cover; background: color-mix(in srgb, var(--fg) 8%, transparent); display: block; }
+.vid .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vid .m { display: block; color: var(--dim); font-size: .9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+footer { margin-top: 2em; color: var(--dim); max-width: 100ch; }
+@media (max-width: 1000px) { .w8, .w4 { grid-column: span 12; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header>
+  <canvas id="pebble" width="16" height="16" aria-hidden="true"></canvas>
+  <h1>gossip <span class="dim">·</span> player</h1>
+  <span id="with" class="dim"></span>
+  <span class="rule"></span>
+  <span id="status" class="dim">connecting to gossip…</span>
+</header>
+
+<div class="grid">
+  <section class="box w8"><h2>Now playing</h2><span class="aside"><a id="onYt" href="#" target="_blank" rel="noopener noreferrer" hidden>open on YouTube ↗</a></span>
+    <div class="screen" id="screen">
+      <div id="slot"></div>
+      <div class="empty" id="empty">
+        <canvas id="big" width="16" height="16" aria-hidden="true"></canvas>
+        <p>Paste a YouTube link to start, or pick a video from your chats.</p>
+      </div>
+      <div class="gate" id="gate" hidden><button id="gateBtn" type="button">Click to play</button></div>
+    </div>
+    <div class="np"><span id="title" class="dim">Nothing playing yet</span><span id="chan" class="dim"></span><span class="grow"></span><span id="time"></span></div>
+    <div class="keys"><kbd>k</kbd> or <kbd>space</kbd> play/pause · <kbd>j</kbd>/<kbd>l</kbd> back/forward 10s · <kbd>f</kbd> full screen · <kbd>m</kbd> mute · <kbd>/</kbd> paste a link</div>
+  </section>
+
+  <div class="w4 stack">
+    <section class="box"><h2>Play a video</h2>
+      <form class="write" id="go"><span>›</span><input id="link" autocomplete="off" spellcheck="false" placeholder="paste a YouTube link" aria-label="A YouTube link to play (press / to start typing)"></form>
+      <p class="note" id="goNote">Typing words instead of a link searches YouTube in a new tab. Copy the video's address from there and paste it here.</p>
+    </section>
+
+    <section class="box" id="tBox"><h2>Watch together</h2><span class="aside" id="tAside">off</span>
+      <div id="tOff">
+        <p>Watch with a friend or a whole server. When anyone plays, pauses or skips, it happens for everyone.</p>
+        <div class="row"><select id="tChat" aria-label="Who to watch with"></select><button class="act" id="tStart" type="button">Start</button></div>
+        <ul class="plain invites" id="invites"></ul>
+      </div>
+      <div id="tOn" hidden>
+        <p id="tHead"></p>
+        <ul class="plain people" id="people"></ul>
+        <div class="row"><button class="act" id="tShare" type="button" disabled>Send this video to the chat</button><button class="act danger" id="tStop" type="button">Stop</button></div>
+        <ol class="log" id="log"></ol>
+      </div>
+      <p class="note err" id="tApi" hidden>Watching together needs YouTube's player controls, and they didn't load. Check the internet connection, then reload this page.</p>
+    </section>
+
+    <section class="box"><h2>From your chats</h2><span class="aside" id="vAside"></span>
+      <div class="vids" id="vids"><p class="dim">Looking…</p></div>
+    </section>
+  </div>
+</div>
+<footer>Videos play in YouTube's own player (its privacy-enhanced youtube-nocookie.com one), so YouTube sees what you watch, like on its website. gossip never downloads videos. Only this computer can open this page.</footer>
+
+<script>
+(function () {
+  'use strict';
+  var C = __CONFIG__;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+  var ID = /^[A-Za-z0-9_-]{11}$/;
+  var clock = function (s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0');
+    return h ? h + ':' + String(m).padStart(2, '0') + ':' + r : m + ':' + r;
+  };
+  var ago = function (ts) {
+    var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    return s < 3600 ? Math.max(1, Math.floor(s / 60)) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
+  };
+  var hhmm = function () { var d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  function post(body) {
+    return fetch(C.api, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false }; });
+  }
+
+  // ── Pebble ──────────────────────────────────────────────────────
+  var P = C.pixels, still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function paint(canvas, grid) {
+    var c = canvas.getContext('2d');
+    c.clearRect(0, 0, 16, 16);
+    for (var i = 0; i < 256; i++) { var ink = P.ink[grid[i]]; if (ink) { c.fillStyle = ink; c.fillRect(i % 16, i >> 4, 1, 1); } }
+  }
+  function animate(canvas, scene, going) {
+    var f = 0;
+    (function step() {
+      var frames = P.scenes[scene], fr = frames[f];
+      paint(canvas, P.grids[fr[0]]);
+      if (still || !going()) { f = 0; paint(canvas, P.grids[frames[0][0]]); return setTimeout(step, 400); }
+      f = (f + 1) % frames.length;
+      setTimeout(step, f === 0 ? fr[1] * 1.4 + 900 : fr[1] * 1.4);
+    })();
+  }
+
+  // ── the YouTube player ──────────────────────────────────────────
+  var api = 'loading', player = null, ready = false, frame = null;
+  var cur = null, title = '', chan = '', dur = 0, problem = '';
+  var lastCt = 0, lastAt = Date.now(), prevState = -1, lastPlaying = false, lastReport = 0;
+  var applyingUntil = 0, afterReady = null, behind = null; // behind: where a friend is, if we couldn't start yet
+  var together = null, people = [], leader = null, titles = {};
+
+  animate($('pebble'), 'dance', function () { return lastPlaying; });
+  animate($('big'), 'laptop', function () { return true; });
+
+  window.onYouTubeIframeAPIReady = function () { api = 'ok'; if (frame && !player) attach(); };
+  (function () {
+    var s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.async = true;
+    s.onerror = function () { api = 'failed'; showApi(); };
+    document.head.appendChild(s);
+    setTimeout(function () { if (api === 'loading') { api = 'failed'; showApi(); } }, 15000);
+  })();
+  function showApi() { $('tApi').hidden = api !== 'failed'; }
+
+  function mount(v, start, play) {
+    cur = v;
+    problem = '';
+    title = titles[v] ? titles[v].title : '';
+    chan = titles[v] ? titles[v].channel : '';
+    dur = 0;
+    start = Math.max(0, Math.floor(start || 0));
+    $('empty').hidden = true;
+    $('onYt').hidden = false;
+    $('onYt').href = 'https://www.youtube.com/watch?v=' + v + (start ? '&t=' + start + 's' : '');
+    if (player && ready) {
+      if (play) player.loadVideoById({ videoId: v, startSeconds: start }); else player.cueVideoById({ videoId: v, startSeconds: start });
+    } else {
+      var f = document.createElement('iframe');
+      f.title = 'YouTube video player';
+      f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      f.setAttribute('allowfullscreen', '');
+      f.referrerPolicy = 'strict-origin-when-cross-origin'; // YouTube won't play without knowing where it's shown
+      f.src = 'https://www.youtube-nocookie.com/embed/' + v + '?enablejsapi=1&playsinline=1&rel=0&origin=' + encodeURIComponent(location.origin) +
+        (start ? '&start=' + start : '') + (play ? '&autoplay=1' : '');
+      $('slot').innerHTML = '';
+      $('slot').appendChild(f);
+      frame = f; player = null; ready = false;
+      if (api === 'ok') attach();
+    }
+    lastCt = start; lastAt = Date.now(); lastPlaying = !!play; prevState = -1;
+    if (play) gate('Click to play', 4000);
+    drawNow();
+    markList();
+    $('tShare').disabled = !together;
+  }
+
+  function attach() {
+    player = new YT.Player(frame, { events: { onReady: onReady, onStateChange: onState, onError: onError } });
+  }
+  function onReady() {
+    ready = true;
+    if (afterReady) { var x = afterReady; afterReady = null; x(); }
+  }
+  function onState(e) {
+    var s = e.data;
+    if (s === 1) hideGate();
+    try { var d = player.getVideoData(); if (d && d.title) { title = d.title; chan = d.author || chan; } dur = player.getDuration() || dur; } catch (err) {}
+    if (s === 1 || s === 2 || s === 0) {
+      var playing = s === 1;
+      if (playing !== lastPlaying) {
+        lastPlaying = playing;
+        var mine = Date.now() > applyingUntil && s !== 0;
+        report(mine, playing ? 'pressed play' : 'paused');
+      }
+    }
+    drawNow();
+  }
+  var ERRORS = {
+    2: "That link doesn't point to a video YouTube recognises.",
+    5: "This video can't play here.",
+    100: 'This video was removed, or it is private.',
+    101: "The person who uploaded this video doesn't let it play outside YouTube. Use “open on YouTube” instead.",
+    150: "The person who uploaded this video doesn't let it play outside YouTube. Use “open on YouTube” instead.",
+    153: "YouTube couldn't tell where it's being played. Reload this page; if it keeps happening, use “open on YouTube”.",
+  };
+  function onError(e) {
+    problem = ERRORS[e.data] || "This video can't be played here.";
+    drawNow();
+  }
+
+  function now() {
+    if (!player || !ready) return { at: lastCt, state: -1 };
+    try { return { at: player.getCurrentTime() || 0, state: player.getPlayerState() }; } catch (e) { return { at: lastCt, state: -1 }; }
+  }
+
+  /** Tell gossip where we are. act: you pressed something (so it goes to whoever is watching with you). */
+  function report(act, what) {
+    lastReport = Date.now();
+    if (!cur) return post({ t: 'state', v: null });
+    var n = now();
+    post({ t: 'state', v: cur, at: n.at, playing: n.state === 1 || (n.state === 3 && lastPlaying), title: title, dur: dur, act: !!act });
+    if (act && together && what) log('you ' + what + ' at ' + clock(n.at));
+  }
+
+  // notice jumps (YouTube has no "you skipped" event), and keep gossip's status line fresh
+  setInterval(function () {
+    var n = now(), t = Date.now();
+    if (player && ready && cur) {
+      // only between "playing" and "paused": while loading, the clock reads 0
+      var steady = (n.state === 1 || n.state === 2) && (prevState === 1 || prevState === 2);
+      var expect = lastCt + (prevState === 1 ? (t - lastAt) / 1000 : 0);
+      if (steady && Math.abs(n.at - expect) > 2.5 && t > applyingUntil) report(true, 'jumped');
+      lastCt = n.at; lastAt = t; prevState = n.state;
+      if (t - lastReport > 5000) report(false);
+    }
+    drawNow();
+  }, 500);
+
+  function drawNow() {
+    var n = now();
+    if (!cur) { $('title').textContent = 'Nothing playing yet'; $('title').className = 'dim'; $('time').textContent = ''; return; }
+    $('title').textContent = problem || title || 'YouTube video';
+    $('title').className = problem ? 'warn' : '';
+    $('chan').textContent = problem ? '' : chan;
+    $('time').textContent = (n.state === 1 ? '▶ ' : '‖ ') + clock(n.at) + (dur ? ' / ' + clock(dur) : '');
+  }
+
+  // When a friend presses play, the browser may not let the video start until you've clicked the page once.
+  var gateTimer = null;
+  function gate(text, wait) {
+    clearTimeout(gateTimer);
+    gateTimer = setTimeout(function () {
+      var n = now();
+      if (lastPlaying && n.state !== 1 && n.state !== 3 && ready) { $('gateBtn').textContent = text; $('gate').hidden = false; }
+    }, wait || 1800);
+  }
+  function hideGate() { clearTimeout(gateTimer); $('gate').hidden = true; }
+  $('gateBtn').addEventListener('click', function () {
+    hideGate();
+    if (!player || !ready) return;
+    applyingUntil = Date.now() + 1500;
+    // catch up with where they are now, not where they were when they pressed play
+    if (behind && behind.v === cur) player.seekTo(behind.at + (Date.now() - behind.when) / 1000, true);
+    behind = null;
+    player.playVideo();
+  });
+
+  // ── things that happen elsewhere ────────────────────────────────
+  /** Put a video on. Unless quiet, everyone watching with you gets it too. */
+  function play(v, start, autoplay, quiet) {
+    if (!ID.test(v)) return;
+    mount(v, start, autoplay);
+    applyingUntil = Date.now() + 1500;
+    if (together && !quiet) log('you put on ' + (titles[v] ? titles[v].title : 'a new video'));
+    post({ t: 'state', v: v, at: start || 0, playing: !!autoplay, title: title, dur: 0, act: !quiet });
+  }
+
+  function remote(ev) {
+    if (!ID.test(ev.v)) return;
+    var changed = ev.v !== cur;
+    var target = ev.at + (ev.playing ? Math.min(5, Math.max(0, (Date.now() - ev.sent) / 1000)) : 0);
+    if (ev.t === 'tick') {
+      if (!ev.lead) return; // only whoever pressed something last keeps everyone in step
+      var n = now();
+      if (ev.v === cur && ready && Math.abs(n.at - target) < 3 && (n.state === 1) === ev.playing) return;
+    }
+    applyingUntil = Date.now() + 2200;
+    var apply = function () {
+      try {
+        if (Math.abs((player.getCurrentTime() || 0) - target) > 1.5) player.seekTo(target, true);
+        if (ev.playing) player.playVideo(); else player.pauseVideo();
+      } catch (e) {}
+      applyingUntil = Date.now() + 1500;
+    };
+    if (changed) { mount(ev.v, target, ev.playing); afterReady = ready ? null : apply; }
+    else if (player && ready) apply();
+    else afterReady = apply;
+    lastPlaying = ev.playing; lastCt = target; lastAt = Date.now();
+    behind = ev.playing ? { v: ev.v, at: target, when: Date.now() } : null;
+    if (ev.playing) gate(ev.from + ' pressed play · click to join in');
+    if (ev.t === 'state' && !ev.act) log('caught up with ' + ev.from + ' at ' + clock(target));
+    if (ev.act) log(ev.from + ' ' + (changed ? 'put on ' + (titles[ev.v] ? titles[ev.v].title : 'a new video') : ev.playing ? 'pressed play at ' + clock(target) : 'paused at ' + clock(target)));
+  }
+
+  function control(ev) {
+    if (!player || !ready) return;
+    try {
+      if (ev.do === 'pause') player.pauseVideo();
+      else if (ev.do === 'play') { player.playVideo(); gate('Click to play'); }
+      else if (ev.do === 'jump') player.seekTo(Math.max(0, (player.getCurrentTime() || 0) + Number(ev.by || 0)), true);
+    } catch (e) {}
+  }
+
+  // ── watching together ───────────────────────────────────────────
+  function log(text) {
+    var li = document.createElement('li');
+    li.innerHTML = '<time>' + hhmm() + '</time><span>' + esc(text) + '</span>';
+    var l = $('log');
+    l.insertBefore(li, l.firstChild);
+    while (l.children.length > 6) l.removeChild(l.lastChild);
+  }
+  function drawWho() {
+    var on = !!together;
+    $('tOff').hidden = on;
+    $('tOn').hidden = !on;
+    $('tAside').textContent = on ? (people.some(function (p) { return p.on; }) ? 'in sync' : 'waiting') : 'off';
+    $('tAside').className = 'aside' + (on && people.some(function (p) { return p.on; }) ? ' ok' : '');
+    $('with').textContent = on ? 'watching with ' + together.label : '';
+    $('tShare').disabled = !on || !cur;
+    if (!on) return;
+    $('tHead').innerHTML = 'With <b class="acc">' + esc(together.label) + '</b>' + (together.key[0] === '#' ? ': everyone there who types /watch joins in.' : '.');
+    var rows = ['<li><span class="ok">●</span> you' + (leader === C.me ? ' <span class="lead">· in charge</span>' : '') + '</li>'];
+    people.forEach(function (p) {
+      rows.push('<li>' + (p.on ? '<span class="ok">●</span> ' : '<span class="dim">○</span> ') + esc(p.name) + (leader === p.name ? ' <span class="lead">· in charge</span>' : '') + '</li>');
+    });
+    if (!people.length) rows.push('<li class="dim">Nobody else yet. They join by typing /watch in that chat.</li>');
+    $('people').innerHTML = rows.join('');
+  }
+  function who(ev) {
+    together = ev.together; people = ev.people || []; leader = ev.leader || null;
+    drawWho();
+  }
+  var invites = [];
+  function drawInvites() {
+    $('invites').innerHTML = invites.map(function (x, i) {
+      return '<li><span>' + esc(x.from) + ' is watching' + (x.key[0] === '#' ? ' in ' + esc(x.label) : '') + '</span><button class="act" type="button" data-i="' + i + '">Join</button></li>';
+    }).join('');
+  }
+  $('invites').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    var x = invites[Number(b.getAttribute('data-i'))];
+    if (x) startTogether(x.key);
+  });
+  function startTogether(key) {
+    post({ t: 'together', key: key }).then(function (r) {
+      if (r && r.ok) {
+        who(r);
+        invites = invites.filter(function (x) { return x.key !== key; });
+        drawInvites();
+        log('started watching together');
+        if (cur) report(true);
+      }
+    });
+  }
+  $('tStart').addEventListener('click', function () { if ($('tChat').value) startTogether($('tChat').value); });
+  $('tStop').addEventListener('click', function () { post({ t: 'together', key: null }).then(function (r) { if (r && r.ok) who(r); }); });
+  $('tShare').addEventListener('click', function () {
+    if (!together || !cur) return;
+    $('tShare').disabled = true;
+    post({ t: 'share', key: together.key, v: cur, start: Math.floor(now().at) }).then(function (r) {
+      $('tShare').disabled = false;
+      log(r && r.ok ? 'sent the link to ' + together.label : 'couldn’t send the link' + (r && r.error ? ': ' + r.error : ''));
+    });
+  });
+
+  // ── videos from your chats ──────────────────────────────────────
+  var vids = [];
+  function loadVideos() {
+    post({ t: 'videos' }).then(function (r) {
+      if (!r || !r.ok) return;
+      vids = r.videos || [];
+      vids.forEach(function (x) { if (x.title) titles[x.id] = { title: x.title, channel: x.channel }; });
+      if (cur && titles[cur] && !title) { title = titles[cur].title; chan = titles[cur].channel; }
+      $('vAside').textContent = vids.length ? vids.length + (vids.length === 1 ? ' video' : ' videos') : '';
+      if (!vids.length) { $('vids').innerHTML = '<p class="dim">Videos people send you show up here. Send one with a link like https://youtu.be/…</p>'; return; }
+      $('vids').innerHTML = vids.map(function (x, i) {
+        return '<button class="vid" type="button" data-i="' + i + '"><img alt="" loading="lazy" src="https://i.ytimg.com/vi/' + x.id + '/mqdefault.jpg">' +
+          '<span><span class="t">' + esc(x.title || 'youtu.be/' + x.id) + '</span><span class="m">' + (x.mine ? 'from you' : 'from ' + esc(x.from)) + ' · ' + esc(x.label) + ' · ' + ago(x.ts) + '</span></span></button>';
+      }).join('');
+      markList();
+    });
+  }
+  function markList() {
+    Array.prototype.forEach.call(document.querySelectorAll('.vid'), function (b) {
+      var x = vids[Number(b.getAttribute('data-i'))];
+      b.setAttribute('aria-current', x && x.id === cur ? 'true' : 'false');
+    });
+  }
+  $('vids').addEventListener('click', function (e) {
+    var b = e.target.closest('.vid');
+    if (!b) return;
+    var x = vids[Number(b.getAttribute('data-i'))];
+    if (x) play(x.id, x.start, true);
+  });
+
+  // ── pasting a link ──────────────────────────────────────────────
+  $('go').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = $('link').value.trim();
+    if (!text) return;
+    post({ t: 'resolve', text: text }).then(function (r) {
+      var note = $('goNote');
+      if (r && r.ok) {
+        $('link').value = '';
+        note.className = 'note';
+        note.textContent = 'Playing. Paste another link any time.';
+        play(r.v, r.start, true);
+      } else if (!/^https?:\/\//i.test(text)) {
+        window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(text), '_blank', 'noopener');
+        note.className = 'note';
+        note.textContent = 'Opened a YouTube search in a new tab. Copy the address of the video you want and paste it here.';
+      } else {
+        note.className = 'note err';
+        note.textContent = "That isn't a YouTube video link. It should look like https://youtu.be/… or https://www.youtube.com/watch?v=…";
+      }
+    });
+  });
+
+  // ── keys ────────────────────────────────────────────────────────
+  document.addEventListener('keydown', function (e) {
+    var tag = (e.target && e.target.tagName) || '';
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === '/') { e.preventDefault(); $('link').focus(); return; }
+    if (!player || !ready) return;
+    var n = now();
+    if (e.key === 'k' || (e.key === ' ' && tag !== 'BUTTON')) { e.preventDefault(); if (n.state === 1) player.pauseVideo(); else player.playVideo(); }
+    else if (e.key === 'j') player.seekTo(Math.max(0, n.at - 10), true);
+    else if (e.key === 'l') player.seekTo(n.at + 10, true);
+    else if (e.key === 'm') { if (player.isMuted()) player.unMute(); else player.mute(); }
+    else if (e.key === 'f' && frame && frame.requestFullscreen) frame.requestFullscreen().catch(function () {});
+  });
+
+  // ── news from gossip ────────────────────────────────────────────
+  var es = new EventSource(C.events);
+  es.onopen = function () { $('status').textContent = '● connected to gossip'; $('status').className = 'ok'; };
+  es.onerror = function () { $('status').textContent = 'gossip is closed: videos still play, but watching together has stopped'; $('status').className = 'warn'; };
+  es.onmessage = function (m) {
+    var ev;
+    try { ev = JSON.parse(m.data); } catch (e) { return; }
+    if (ev.t === 'hello') {
+      $('tChat').innerHTML = (ev.chats || []).map(function (c) { return '<option value="' + esc(c.key) + '">' + esc(c.label) + '</option>'; }).join('') || '<option value="">no chats yet</option>';
+      $('tStart').disabled = !(ev.chats || []).length;
+      invites = ev.invites || [];
+      drawInvites();
+      who(ev);
+      if (ev.together && !$('log').children.length) log('watching together with ' + ev.together.label);
+      if (ev.load) play(ev.load.v, ev.load.start, ev.load.play, !ev.load.play || !!ev.remote);
+      else if (ev.now && !cur) mount(ev.now.v, ev.now.at, false);
+      if (ev.remote) remote(ev.remote);
+      loadVideos();
+    } else if (ev.t === 'load') play(ev.v, ev.start, ev.play);
+    else if (ev.t === 'state' || ev.t === 'tick') remote(ev);
+    else if (ev.t === 'control') control(ev);
+    else if (ev.t === 'who') who(ev);
+    else if (ev.t === 'note') log(ev.text);
+    else if (ev.t === 'invite') {
+      invites = invites.filter(function (x) { return x.key !== ev.key; }).concat([{ key: ev.key, label: ev.label, from: ev.from }]);
+      drawInvites();
+    } else if (ev.t === 'focus') window.focus();
+  };
+  setInterval(loadVideos, 60000);
+  drawWho();
+})();
+</script>
+</body>
+</html>

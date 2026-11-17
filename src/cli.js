@@ -177,6 +177,7 @@ async function live({ view = '', app = null, notice = null, firstRun = null, sta
   app = app || makeApp('live', { shell: true });
   if (firstRun === null) firstRun = await ensureAccount(app);
   if (!app.calls) app.calls = new (require('./call').Calls)(app);
+  if (!app.player) app.player = new (require('./player').Player)(app);
   view = view || prefs.val('view');
   checkForUpdates();
   notice = notice || require('./update').news(prefs.val('update'));

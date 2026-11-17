@@ -80,13 +80,14 @@ class Web {
   }
 
   _handle(req, res) {
-    const send = (code, body, type = 'text/plain; charset=utf-8') => {
+    const send = (code, body, type = 'text/plain; charset=utf-8', extra = null) => {
       res.writeHead(code, {
         'Content-Type': type,
         'Cache-Control': 'no-store',
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; frame-ancestors 'none'",
+        ...(extra || {}),
       });
       res.end(body);
     };
@@ -175,4 +176,48 @@ function openBrowser(url) {
   }
 }
 
-module.exports = { Web, openBrowser, themeCss, pebbleIcon };
+/**
+ * Open an address in a window of its own, with no tabs or address bar, when
+ * Chrome, Edge or Brave is installed - so the player feels like part of gossip.
+ * Otherwise (or if that fails) a normal browser tab.
+ */
+function openWindow(url, { width = 1200, height = 780 } = {}) {
+  if (process.env.GOSSIP_NO_BROWSER === '1') return false;
+  const args = [`--app=${url}`, `--window-size=${width},${height}`];
+  const tries = [];
+  if (process.platform === 'darwin') {
+    const os = require('os');
+    for (const name of ['Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Chromium']) {
+      if (fs.existsSync(`/Applications/${name}.app`) || fs.existsSync(path.join(os.homedir(), 'Applications', `${name}.app`))) {
+        tries.push(['open', ['-na', name, '--args', ...args]]);
+      }
+    }
+  } else if (process.platform === 'win32') {
+    const base = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.LOCALAPPDATA].filter(Boolean);
+    for (const rel of ['Microsoft\\Edge\\Application\\msedge.exe', 'Google\\Chrome\\Application\\chrome.exe', 'BraveSoftware\\Brave-Browser\\Application\\brave.exe']) {
+      for (const b of base) { const exe = path.join(b, rel); if (fs.existsSync(exe)) tries.push([exe, args]); }
+    }
+  } else {
+    for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+      for (const bin of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser']) {
+        if (dir && fs.existsSync(path.join(dir, bin))) tries.push([path.join(dir, bin), args]);
+      }
+    }
+  }
+  const pick = tries[0];
+  if (!pick) return openBrowser(url);
+  try {
+    const child = spawn(pick[0], pick[1], { stdio: 'ignore', detached: true, windowsHide: true });
+    const started = Date.now();
+    let fellBack = false;
+    const fallBack = () => { if (!fellBack) { fellBack = true; openBrowser(url); } };
+    child.on('error', fallBack);
+    child.on('exit', (code) => { if (code && Date.now() - started < 5000) fallBack(); });
+    child.unref();
+    return true;
+  } catch {
+    return openBrowser(url);
+  }
+}
+
+module.exports = { Web, openBrowser, openWindow, themeCss, pebbleIcon };

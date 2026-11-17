@@ -2,6 +2,14 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+## 0.10.0
+- A YouTube player, built in. Inside a chat, type `/yt` and paste a YouTube link: it plays in gossip's own player window, and the bottom line of the chat shows what's playing. `/yt pause`, `/yt play`, `/yt +30` and `/yt -10` control it from the chat.
+- YouTube links in messages get a `▶ YouTube video` line under them. `/yt` plays the newest one in the chat, `/videos` lists them all, and `/yt 2` plays the second.
+- Watch together: open a chat (a friend or a server), type `/watch` and a link. When the others type `/watch` too, you're in sync: anyone presses play, pauses or skips, and it happens for everyone. `/watch stop` leaves. Play and pause travel end-to-end encrypted, only to the people watching, and are never saved.
+- The player lists every video from your chats (with titles and pictures), lets you paste links, start watching together and send the video you're on to the chat. Keys: `k` or space, `j`/`l`, `f`, `m`.
+- The dashboard's conversation box has a "▶ play" button next to YouTube links.
+- Videos play in YouTube's own privacy-enhanced player. gossip never downloads them.
+
 ## 0.9.1
 - The penguin keeps its look: on macOS Terminal, "auto" picks the blocky penguin once and keeps it. Before, it switched to the detailed one when you started typing (that's when macOS Terminal reports its colours) and never switched back. Choose the detailed one any time in settings (mascot.style smooth).
 

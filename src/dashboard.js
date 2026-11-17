@@ -304,6 +304,11 @@ function routes(app, web) {
         app.setDnd(m.for === 'off' ? 0 : t ? t.at : Date.now() + 100 * 365 * 86400000);
       } else if (m.do === 'unschedule' && ['later', 'reminders'].includes(m.kind) && typeof m.id === 'string') {
         result = { ok: !!app.unschedule(m.kind, m.id) };
+      } else if (m.do === 'play' && typeof m.url === 'string') {
+        const v = require('./youtube').parse(m.url);
+        if (!v) throw new Error("That isn't a YouTube video");
+        if (!app.player) app.player = new (require('./player').Player)(app);
+        await app.player.show(v, { play: true });
       } else if (m.do === 'openfiles') {
         const dir = storage(app).files.dir;
         fs.mkdirSync(dir, { recursive: true });

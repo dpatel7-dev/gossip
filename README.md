@@ -196,6 +196,8 @@ Want to watch Pebble? `gossip dance`, `gossip dance phone`, `gossip dance laptop
 /call maya                  # (inside a chat) voice call, in your browser; /video maya for video
 /answer  /decline  /hangup  # (inside a chat) or just Enter / Esc while it rings
                             # in a call: t chat, 1-5 reactions, d pick mic/camera/speaker, p pop out, f fullscreen
+/yt https://youtu.be/...    # (inside a chat) play a YouTube video in gossip's player
+/watch                      # (inside a chat) watch it together, in sync (see below)
 /dashboard                  # (inside a chat) every connection, who can read what, activity -
                             # plus read and reply to any chat, search your messages,
                             # check safety numbers, call, and change settings from the page
@@ -221,6 +223,45 @@ gossip uninstall            # remove gossip (asks first; can keep your account)
 
 All of these are in the Tab menu too. Your People list only ever holds people
 you added yourself; a message from anyone else shows under "Others" until you've read it.
+
+## Watch YouTube together
+
+gossip has its own YouTube player. It opens in a window of its own (if you have
+Chrome, Edge or Brave; otherwise a browser tab), like calls do.
+
+1. Inside a chat, type `/yt` and paste a YouTube link after it, then press Enter:
+
+   ```
+   /yt https://youtu.be/dQw4w9WgXcQ
+   ```
+
+   The video plays in gossip's player. The line at the bottom of the chat shows
+   what's playing, and `/yt pause`, `/yt play`, `/yt +30` and `/yt -10` work from
+   the chat.
+2. When someone sends a YouTube link, a line under it says `▶ YouTube video`.
+   `/yt` plays the newest one in that chat. `/videos` lists them all, and `/yt 2`
+   plays the second one.
+3. To watch **with** someone, open their chat (or a server) and type `/watch`
+   and a link. They get the link, plus a note saying you want to watch together.
+   When they type `/watch` in the same chat, you're in sync: when either of you
+   presses play, pauses or skips, it happens for both. `/watch stop` leaves.
+
+In the player you can also paste links, pick any video from your chats, start
+watching together, and send the video you're on to the chat. Keys: `k` or space
+play/pause, `j`/`l` back/forward 10 seconds, `f` full screen, `m` mute.
+
+Good to know:
+
+- Videos play in YouTube's own player (its privacy-enhanced
+  youtube-nocookie.com one), so YouTube sees what you watch, like on its
+  website. gossip never downloads videos.
+- Play, pause and skip are sent like messages: end-to-end encrypted, only to
+  the people watching, and never saved or shown in the chat.
+- Some videos only play on youtube.com (their owner turned off playing them
+  elsewhere). The player says so and gives you an "open on YouTube" link.
+- Browsers often won't start a video by themselves until you've clicked the
+  page once. If a friend presses play first, click "click to join in".
+- Want a normal browser tab instead of a window? `gossip config player tab`.
 
 ## No internet? `gossip nearby`
 

@@ -195,7 +195,16 @@ function messageLines(me, key, msg, cols, bare = false) {
     });
   }
   if (msg.from === me && msg.status === 'failed') out[out.length - 1] += '  ' + Th.err('✗ not sent');
-  return out;
+  return out.concat(videoLines(msg, indent, max));
+}
+
+/** Under a message with a YouTube link: how to play it here. */
+function videoLines(msg, indent, max) {
+  if (typeof msg.text !== 'string' || msg.text.indexOf('http') < 0) return [];
+  const n = require('./youtube').findAll(msg.text).length;
+  if (!n) return [];
+  const text = n === 1 ? 'YouTube video · /yt plays it · /watch to watch together' : `${n} YouTube videos · /videos`;
+  return [' '.repeat(indent) + Th.accent2('▶ ') + Th.dim(A.clip(text, Math.max(8, max - indent - 2)))];
 }
 
 /** The "cozy" layout: who and when on one line, the text underneath. */
@@ -210,7 +219,7 @@ function cozyLines(me, key, msg, cols, withHeader, bare = false) {
   if (msg.file) return out.concat('   ' + A.clip(fileText(me, msg), max - 3), fileLines(msg, 3, max));
   for (const l of A.wrap(msg.text, max - 3)) out.push('   ' + decorate(me, l));
   if (msg.from === me && msg.status === 'failed') out[out.length - 1] += '  ' + Th.err('✗ not sent');
-  return out;
+  return out.concat(videoLines(msg, 3, max));
 }
 
 const MARKS = { ok: ['✓', 'ok'], warn: ['!', 'warn'], err: ['✗', 'err'], sys: ['·', 'dim'], event: ['→', 'dim'] };

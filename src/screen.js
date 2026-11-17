@@ -284,7 +284,8 @@ function run(app, { firstRun = false, notice = null, startup = null, input = pro
       const rw = A.vwidth(right);
       const call = app.calls && app.calls.current;
       const waiting = unreadElsewhere();
-      const options = flashing ? [flash.text] : call ? [callText(call)] : typing ? [typing]
+      const playing = app.player ? app.player.statusText() : '';
+      const options = flashing ? [flash.text] : call ? [callText(call)] : typing ? [typing] : playing ? [playing, playing.replace(/ · \/yt \w+$/, '')]
         : menu.active ? ['']
           : pal ? ['tab complete · ↑↓ choose · enter ' + (pal.stage === 'cmd' ? 'run' : 'pick') + ' · esc hide', 'tab complete · ↑↓ choose · esc hide', 'tab complete', '']
             : scroll ? [below ? `↓ ${below} new below · pgdn or esc for the newest` : 'pgdn or esc for the newest messages', below ? `↓ ${below} new · esc` : 'esc: newest']

@@ -36,6 +36,14 @@ function roomOrCurrent(app, raw, what) {
   return room;
 }
 
+/** The YouTube player (it lives while the chat is open). */
+function player(ctx) {
+  const { app } = ctx;
+  if (!ctx.shell || !app.identity) throw new Error('Videos play while the chat is open: type gossip, then /yt there.');
+  if (!app.player) app.player = new (require('./player').Player)(app);
+  return app.player;
+}
+
 function needOnline(app) {
   if (!app.link || !app.link.online) throw new Error("You're offline right now - try again once you're reconnected.");
 }
@@ -423,6 +431,98 @@ const COMMANDS = [
     async run(ctx) {
       if (!ctx.app.calls) throw new Error("You're not in a call.");
       await ctx.app.calls.hangup();
+    },
+  },
+  {
+    name: 'youtube', aliases: ['yt', 'play', 'tv'], args: '[link | number | pause | play | +30 | -10]', group: 'Videos',
+    desc: "Play a YouTube video in gossip's player: paste a link, or a number from /videos",
+    async run(ctx, args) {
+      const { app } = ctx;
+      const pl = player(ctx);
+      const YT = require('./youtube');
+      const word = String(args[0] || '').toLowerCase();
+      // the controls, for a video that's already playing
+      const controls = { pause: 'pause', stop: 'pause', play: 'play', resume: 'play', unpause: 'play' };
+      if (controls[word] || /^[+-]\d{1,5}$/.test(word)) {
+        if (!pl.open) throw new Error(`The player isn't open. Start it with ${app.hint('yt <link>')}`);
+        if (controls[word]) pl.control(controls[word]);
+        else pl.control('jump', parseInt(word, 10));
+        return app.say(controls[word] === 'pause' ? 'Paused.' : controls[word] ? 'Playing.' : `Jumped ${word[0] === '+' ? 'forward' : 'back'} ${Math.abs(parseInt(word, 10))} seconds.`, 'sys');
+      }
+      let video = null;
+      if (/^\d{1,3}$/.test(word)) {
+        const list = YT.videosIn(app, app.target ? [app.target] : null);
+        video = list[parseInt(word, 10) - 1];
+        if (!video) throw new Error(`There's no video number ${word} - see ${app.hint('videos')}`);
+      } else if (args.length) {
+        video = YT.parse(args[0]);
+        if (!video) {
+          // not a link: look it up on YouTube instead
+          const q = args.join(' ').slice(0, 200);
+          const opened = require('./web').openBrowser('https://www.youtube.com/results?search_query=' + encodeURIComponent(q));
+          return app.say(`gossip can't search YouTube by itself, so ${opened ? 'a YouTube search is open in your browser' : 'search on youtube.com'}. Copy the address of the video you want, then type /yt and paste it.`, 'sys');
+        }
+      } else if (app.target) {
+        video = YT.videosIn(app, [app.target], 1)[0] || null;
+      }
+      const r = await pl.show(video, { play: args.length > 0 });
+      if (r.reused) return app.say(video ? 'Playing it in your player window.' : 'The player is already open.', 'ok');
+      const what = !video ? 'Paste a YouTube link into it to start.' : args.length ? '' : `It has the newest video from ${pretty(app.target)} ready: press play.`;
+      app.say(r.opened ? `The player is open${what ? '. ' + what : '.'} Pause it from here with ${app.hint('yt pause')}` : `Open the player in your browser: ${r.url}`, 'ok');
+    },
+  },
+  {
+    name: 'videos', aliases: ['vids', 'youtubes'], group: 'Videos',
+    desc: 'List the YouTube videos people sent in this chat, newest first',
+    async run(ctx) {
+      const { app } = ctx;
+      const YT = require('./youtube');
+      const list = YT.videosIn(app, app.target ? [app.target] : null, 20);
+      const where = app.target ? pretty(app.target) : 'your chats';
+      if (!list.length) return app.say(`No YouTube videos in ${where} yet. Send a link like https://youtu.be/… and it shows up here.`, 'sys');
+      await Promise.all(list.slice(0, 12).map((x) => YT.title(x.id, 2500)));
+      const W = require('./when');
+      const rows = [[[`YouTube videos in ${where}`, 'head']]];
+      list.forEach((x, i) => {
+        const t = YT.titles.get(x.id);
+        rows.push([
+          [`  ${String(i + 1).padStart(2)}  `, 'accent'], [t ? t.title.slice(0, 60) : YT.link(x.id, x.start), 'bold'],
+          [`  ${x.mine ? 'from you' : 'from ' + x.from}${app.target ? '' : ' in ' + pretty(x.key)} · ${W.span(Math.max(60000, Date.now() - x.ts))} ago`, 'dim'],
+        ]);
+      });
+      rows.push([[`  Play one: ${app.hint('yt 1')}   Watch it together: ${app.hint('watch')}`, 'dim']]);
+      return app.rows(rows);
+    },
+  },
+  {
+    name: 'watch', aliases: ['together', 'watchparty', 'party'], args: '[link | stop]', group: 'Videos', net: true,
+    desc: 'Watch a YouTube video together with this chat: when anyone plays, pauses or skips, everyone does',
+    async run(ctx, args) {
+      const { app } = ctx;
+      const pl = player(ctx);
+      const YT = require('./youtube');
+      const word = String(args[0] || '').toLowerCase();
+      if (['stop', 'leave', 'off', 'end', 'quit'].includes(word)) {
+        if (!(await pl.leave())) throw new Error("You're not watching with anyone.");
+        return app.say('Stopped watching together. The video keeps playing just for you.', 'sys');
+      }
+      const key = app.target;
+      if (!key) throw new Error('Open a chat first (a friend or a server), then type /watch to watch with them.');
+      needOnline(app);
+      let video = null;
+      if (args.length) {
+        video = YT.parse(args[0]);
+        if (!video) throw new Error(`That isn't a YouTube link. Copy one from YouTube (it looks like https://youtu.be/…), then ${app.hint('watch <paste it>')}`);
+        await app.send(key, `▶ Watch with me: ${YT.link(video.id, video.start)}`);
+      } else {
+        const inv = pl.invites.get(key);
+        if (inv && inv.v) video = { id: inv.v, start: 0 };
+        else if (!pl.position()) video = YT.videosIn(app, [key], 1)[0] || null;
+      }
+      await pl.join(key, { take: args.length ? { v: video.id, at: video.start } : null });
+      const r = await pl.show(video, { play: !!args.length });
+      const who = key[0] === '#' ? `everyone in ${key} who joins` : pretty(key);
+      app.say(`Watching together with ${who}: when anyone plays, pauses or skips, everyone does.${r.opened ? '' : ` Open: ${r.url}`} Stop with ${app.hint('watch stop')}`, 'ok');
     },
   },
   {
@@ -1025,7 +1125,7 @@ const COMMANDS = [
   },
 ];
 
-const GROUPS = ['Chat', 'People', 'Servers', 'Safety', 'Make it yours', 'Setup'];
+const GROUPS = ['Chat', 'Videos', 'People', 'Servers', 'Safety', 'Make it yours', 'Setup'];
 
 function usage(ctx, c) {
   return new Error(`Usage: ${ctx.app.hint(c.name)}${c.args ? ' ' + c.args : ''}`);

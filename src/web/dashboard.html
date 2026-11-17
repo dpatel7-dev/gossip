@@ -490,9 +490,19 @@ footer { margin-top: 2em; color: var(--dim); }
     }
     paint('safety', safe);
   }
+  var YT_RE = /^https?:\/\/(www\.|m\.|music\.)?(youtube\.com\/(watch\?|shorts\/|live\/)|youtu\.be\/)/i;
   function linkify(html) {
-    return html.replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, function (u) { return '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>'; });
+    return html.replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, function (u) {
+      var a = '<a href="' + u + '" target="_blank" rel="noopener noreferrer">' + u + '</a>';
+      return YT_RE.test(u) ? a + ' <button class="mini play" type="button" data-url="' + u + '" title="Play it in gossip\'s player">▶ play</button>' : a;
+    });
   }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('button.play');
+    if (!b) return;
+    b.disabled = true;
+    act({ do: 'play', url: b.getAttribute('data-url').replace(/&amp;/g, '&') }).then(function () { b.disabled = false; });
+  });
   $('reply').addEventListener('submit', function (e) {
     e.preventDefault();
     var input = $('replyText'), text = input.value.trim();
