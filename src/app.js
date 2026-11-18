@@ -191,8 +191,8 @@ class App extends EventEmitter {
     });
     const late = (x) => (now - x.at > 120000 ? ` (it was due ${require('./when').span(now - x.at)} ago, while gossip was closed)` : '');
     for (const r of took.reminders) {
-      this.say(`⏰ Reminder: ${r.text}${late(r)}`, 'event');
-      this.flash(`⏰ ${r.text}`);
+      this.say(`◷ Reminder: ${r.text}${late(r)}`, 'event');
+      this.flash(`◷ ${r.text}`);
       this.emit('bell', { force: true });
       notify.send('gossip reminder', r.text, { force: true });
     }

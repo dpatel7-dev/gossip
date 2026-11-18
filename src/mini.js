@@ -50,7 +50,7 @@ function run(app, { back = null } = {}) {
         const t = prefs.val('time') === 'off' ? '' : Th.dim(clock(item.msg.ts, '24h')) + ' ';
         const who = mine ? A.paint(`you → ${label(item.key)}`, { bold: true })
           : R.user(item.msg.from) + (item.key[0] === '#' ? Th.dim(' in ') + Th.paint('server', item.key) : '');
-        add(t + who + Th.dim(': ') + (item.msg.file ? '📎 ' + item.msg.file.name : String(item.msg.text).replace(/\s+/g, ' ')));
+        add(t + who + Th.dim(': ') + (item.msg.file ? '▤ ' + item.msg.file.name : String(item.msg.text).replace(/\s+/g, ' ')));
         if (!mine) {
           unread++;
           if (!ed.text && app.target !== item.key) app.setTarget(item.key); // replies go to whoever wrote last

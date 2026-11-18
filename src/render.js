@@ -159,7 +159,7 @@ function fileText(me, msg) {
   else if (f.state === 'failed') state = Th.err('✗ failed');
   else if (f.state === 'saved') state = Th.ok('saved') + Th.dim(' · /open');
   else if (msg.from === me) state = Th.dim(msg.status === 'delivered' ? 'delivered' : 'sent');
-  return Th.accent2('📎 ') + A.paint(f.name, { bold: true, underline: true }) + Th.dim('  ' + F.sizeText(f.size)) + (state ? '  ' + state : '');
+  return Th.accent2('▤ ') + A.paint(f.name, { bold: true, underline: true }) + Th.dim('  ' + F.sizeText(f.size)) + (state ? '  ' + state : '');
 }
 
 function fileLines(msg, indent, max) {

@@ -2,6 +2,9 @@
 
 See this any time with `gossip changelog`, or in the chat: Tab, then "What's new".
 
+
+## 0.10.1
+- No more emoji in gossip's own screens: files show ▤, reminders show ◷, and the dashboard and call window use small drawn icons. Call reactions (thumbs up, love, laugh, party, wave) are drawn icons too, and still understand reactions sent by older versions. Emoji you type yourself (like :fire:) still work.
 ## 0.10.0
 - A YouTube player, built in. Inside a chat, type `/yt` and paste a YouTube link: it plays in gossip's own player window, and the bottom line of the chat shows what's playing. `/yt pause`, `/yt play`, `/yt +30` and `/yt -10` control it from the chat.
 - YouTube links in messages get a `▶ YouTube video` line under them. `/yt` plays the newest one in the chat, `/videos` lists them all, and `/yt 2` plays the second.

@@ -92,6 +92,7 @@ ul.plain li { padding: .12em 0; }
 [hidden] { display: none !important; }
 .thread .day { display: block; text-align: center; color: var(--dim); margin: .5em 0 .2em; }
 .thread .file { color: var(--accent); }
+.ico { width: 1.05em; height: 1.05em; vertical-align: -.17em; margin-right: .5ch; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .safety:empty { display: none; }
 .safety { border: 1px dashed var(--border); border-radius: 6px; padding: .5em 1.5ch; }
 .safety .num { color: var(--accent); letter-spacing: .04em; }
@@ -167,6 +168,11 @@ footer { margin-top: 2em; color: var(--dim); }
 <footer>Updates every couple of seconds while gossip is open. Only this computer can see this page.</footer>
 
 <script>
+  // small drawn icons (never emoji, so they look the same everywhere)
+  var ICON = {
+    clip: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.2-8.2a3.4 3.4 0 0 1 4.8 4.8l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4"/></svg>',
+    clock: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3.5 2.5 6M19 3.5 21.5 6"/></svg>'
+  };
 (function () {
   'use strict';
   var C = __CONFIG__;
@@ -473,7 +479,7 @@ footer { margin-top: 2em; color: var(--dim); }
     T.messages.forEach(function (m) {
       var d = dayOf(m.ts);
       if (d !== day) { day = d; html += '<li class="day">' + esc(d) + '</li>'; }
-      var body = m.file ? '<span class="file">📎 ' + esc(m.file.name) + (m.file.size ? ' (' + bytes(m.file.size) + ')' : '') + '</span>' : linkify(esc(m.text));
+      var body = m.file ? '<span class="file">' + ICON.clip + esc(m.file.name) + (m.file.size ? ' (' + bytes(m.file.size) + ')' : '') + '</span>' : linkify(esc(m.text));
       html += '<li class="' + (m.mine ? 'mine' : '') + '"><time>' + clock(m.ts) + '</time><span><span class="from">' + (m.mine ? 'you' : esc(m.from)) + '</span> ' + body + '</span></li>';
     });
     var list = $('thread'), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
@@ -557,7 +563,7 @@ footer { margin-top: 2em; color: var(--dim); }
 
   function renderComing() {
     var items = [];
-    (S.scheduled.reminders || []).forEach(function (r) { items.push({ at: r.at, kind: 'reminders', id: r.id, html: '⏰ ' + esc(r.text) }); });
+    (S.scheduled.reminders || []).forEach(function (r) { items.push({ at: r.at, kind: 'reminders', id: r.id, html: ICON.clock + esc(r.text) }); });
     (S.scheduled.later || []).forEach(function (m) { items.push({ at: m.at, kind: 'later', id: m.id, html: 'to <span class="acc">' + esc(m.key) + '</span>: ' + esc(m.text) }); });
     items.sort(function (a, b) { return a.at - b.at; });
     paint('coming', items.length ? '<ul class="plain">' + items.map(function (x) {
